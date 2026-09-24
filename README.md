@@ -24,7 +24,7 @@ spec-lock check <old> <new>   # exit 0 when the move may land, 1 with the reason
 
 `bin/spec-lock-hook` is the git adapter. `register(configFile)` in `lib/lock.mjs` adds it to a git config file as the config-defined hook `spec-lock-reference-transaction`, which git 2.54 runs beside a repository's own hooks. It refuses in the `prepared` state, so merges, fast-forwards, resets, commits and `update-ref` on the protected branch all go through it. It fails closed: a crashed checker, a missing object, or no `node` on the PATH refuses the update.
 
-A single command can skip the check with `git -c hook.spec-lock-reference-transaction.enabled=false <command>`. That escape is for the captain only.
+A single command can skip the check with `git -c hook.spec-lock-reference-transaction.enabled=false <command>`. That escape is for the repository owner only; agents never use it.
 
 ## Tests
 
