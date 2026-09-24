@@ -961,14 +961,16 @@ test('pulled commits: doctor reports a remote-tracking tip its remote does not h
 
 // A stand-in for the gh CLI: answers "gh api --method M path" from a table keyed "M path" and logs
 // each call with its JSON body. An error entry { status, message } fails the way gh does, as does a
-// path the table does not hold.
+// path the table does not hold. An entry { calls: [...] } gives its answers in turn, the last one after.
 const FAKE_GH = `#!/usr/bin/env node
 const fs = require('node:fs')
 const [, , sub, flag, method, path, ...rest] = process.argv
 const body = rest.includes('--input') ? JSON.parse(fs.readFileSync(0, 'utf8')) : undefined
+const earlier = fs.readFileSync(process.env.FAKE_GH_LOG, 'utf8').split('\\n').filter((l) => l && JSON.parse(l).method === method && JSON.parse(l).path === path).length
 fs.appendFileSync(process.env.FAKE_GH_LOG, JSON.stringify({ method, path, body }) + '\\n')
 const table = JSON.parse(fs.readFileSync(process.env.FAKE_GH, 'utf8'))
-const answer = sub === 'api' && flag === '--method' ? table[method + ' ' + path] : undefined
+const entry = sub === 'api' && flag === '--method' ? table[method + ' ' + path] : undefined
+const answer = entry?.calls ? entry.calls[Math.min(earlier, entry.calls.length - 1)] : entry
 if (answer === undefined || answer.status) {
   const { status = 404, message = 'Not Found' } = answer || {}
   process.stdout.write(JSON.stringify({ message }))
@@ -1039,9 +1041,10 @@ test('AC15 and AC16: enrollment writes the checker workflow, then one ruleset pe
     assert.ok(template.out.split('\n').includes(line), `the workflow lacks: ${line}\n${template.out}`)
   }
 
-  // Applied: the workflow reaches each protected branch before any ruleset guards it.
+  // Applied: the workflow reaches each protected branch before any ruleset guards it. Each branch has no
+  // rules when enrollment starts and the new ruleset's rules when it reads them back.
   const rules = want.map((r) => ({ ...r.rules[2], ruleset_id: 7 })).map((r, i) => [...want[i].rules.slice(0, 2), r])
-  gh.set({ 'GET repos/o/r/rules/branches/trunk': rules[0], 'GET repos/o/r/rules/branches/integration%2Fcandidate': rules[1] })
+  gh.set({ 'GET repos/o/r/rules/branches/trunk': { calls: [[], rules[0]] }, 'GET repos/o/r/rules/branches/integration%2Fcandidate': { calls: [[], rules[1]] } })
   gh.clear()
   const applied = s.rollout([...args, '--apply'], gh.env)
   assert.equal(applied.code, 0, applied.out + applied.err)
@@ -1057,7 +1060,8 @@ test('AC15 and AC16: enrollment writes the checker workflow, then one ruleset pe
   assert.deepEqual(writes.slice(2).map((c) => c.body), want)
 
   // A readback that lacks the check fails the enrollment.
-  gh.set({ 'GET repos/o/r/rules/branches/integration%2Fcandidate': rules[1].slice(0, 2) })
+  gh.set({ 'GET repos/o/r/rules/branches/integration%2Fcandidate': { calls: [[], rules[1].slice(0, 2)] } })
+  gh.clear()
   const unread = s.rollout([...args, '--apply'], gh.env)
   assert.equal(unread.code, 1, unread.out + unread.err)
   assert.match(unread.err, /integration\/candidate does not require spec-lock integration\/candidate from GitHub Actions/)
@@ -1084,7 +1088,9 @@ test('AC15: enrollment refuses, and changes nothing, where public actions or rul
     'no rulesets on this plan': [{ 'GET repos/o/r/rulesets?includes_parents=false': { status: 403, message: 'Upgrade to GitHub Pro or make this repository public to enable this feature.' } }, /rulesets are not available: Upgrade to GitHub Pro/],
     'not an admin': [{ 'GET repos/o/r': { ...base['GET repos/o/r'], permissions: { admin: false } } }, /not an admin/],
     'action commit not on GitHub': [{ [`GET repos/EvanAgee/spec-lock/commits/${sha}`]: { status: 422, message: 'No commit found' } }, /is not a commit of EvanAgee\/spec-lock/],
-    'guarded workflow would change': [{ 'GET repos/o/r/rulesets?includes_parents=false': [{ id: 3, name: 'spec-lock' }], 'GET repos/o/r/contents/.github/workflows/spec-lock.yml?ref=main': { sha: 'f'.repeat(40), content: Buffer.from('old\n').toString('base64') } }, /the spec-lock ruleset already guards main/],
+    'required check would refuse the workflow': [{ 'GET repos/o/r/rulesets?includes_parents=false': [{ id: 3, name: 'spec-lock' }], 'GET repos/o/r/contents/.github/workflows/spec-lock.yml?ref=main': { sha: 'f'.repeat(40), content: Buffer.from('old\n').toString('base64') }, 'GET repos/o/r/rules/branches/main': [{ type: 'deletion' }, { type: 'required_status_checks', parameters: {} }] }, /required_status_checks on main would refuse a direct write/],
+    'pull requests only': [{ 'GET repos/o/r/rules/branches/main': [{ type: 'pull_request', parameters: {} }] }, /pull_request on main would refuse a direct write/],
+    'classic branch protection': [{ 'GET repos/o/r/branches/main': { name: 'main', protected: true }, 'GET repos/o/r/branches/main/protection': { required_status_checks: { contexts: ['ci'] } } }, /branch protection on main would refuse a direct write/],
   }
   const allowed = []
   for (const [name, [change, fault]] of Object.entries(cases)) {
@@ -1094,8 +1100,12 @@ test('AC15: enrollment refuses, and changes nothing, where public actions or rul
     if (r.code !== 1 || !fault.test(r.out + r.err) || writes.length) allowed.push(`${name}: exit ${r.code}, ${writes.length} writes, ${r.out}${r.err}`)
   }
   assert.deepEqual(allowed, [])
-  // Allowed patterns do allow it.
-  const gh = fakeGh(s, { ...base, 'GET repos/o/r/actions/permissions': { enabled: true, allowed_actions: 'selected' }, 'GET repos/o/r/actions/permissions/selected-actions': { github_owned_allowed: true, patterns_allowed: ['EvanAgee/*'] } })
+  // Allowed patterns do allow it, and branch protection that only keeps admins to it blocks nothing.
+  const gh = fakeGh(s, {
+    ...base,
+    'GET repos/o/r/actions/permissions': { enabled: true, allowed_actions: 'selected' }, 'GET repos/o/r/actions/permissions/selected-actions': { github_owned_allowed: true, patterns_allowed: ['EvanAgee/*'] },
+    'GET repos/o/r/branches/main': { name: 'main', protected: true }, 'GET repos/o/r/branches/main/protection': { required_status_checks: { contexts: [], checks: [] }, enforce_admins: { enabled: true } },
+  })
   const r = s.rollout(['enroll', 'o/r', '--action', sha], gh.env)
   assert.equal(r.code, 0, r.out + r.err)
 })

@@ -36,6 +36,9 @@ const CHECKOUT = 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 // a commit status that anyone with write access can post under the same name.
 const ACTIONS_APP = 15368
 const WORKFLOW = '.github/workflows/spec-lock.yml'
+// Rules that refuse a direct write to a branch: the commit the API writes has no checks yet and comes
+// from no pull request.
+const BLOCKING = new Set(['required_status_checks', 'pull_request', 'update', 'required_deployments', 'merge_queue', 'required_signatures'])
 
 const lines = (text) => text.split('\n').filter(Boolean)
 const git = (repo, ...args) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', timeout: 30000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })
@@ -237,9 +240,13 @@ function plan(repo, integration, sha) {
     const file = gh(`repos/${repo}/contents/${WORKFLOW}?ref=${encodeURIComponent(branch)}`)
     if (!file.ok && file.status !== 404) { problems.push(`cannot read ${WORKFLOW} on ${branch}: ${file.message}`); continue }
     if (file.ok && Buffer.from(file.data.content, 'base64').toString() === text) continue
-    // The ruleset would refuse the write: the new commit has no passing check yet.
-    const name = context(branch, def)
-    if (existing.has(name)) problems.push(`the ${name} ruleset already guards ${branch}, so the workflow change must land there like any code change, with a proof; enroll again after that`)
+    const enc = encodeURIComponent(branch)
+    const rules = gh(`repos/${repo}/rules/branches/${enc}`)
+    const blocking = [...new Set((rules.ok ? rules.data : []).map((r) => r.type).filter((type) => BLOCKING.has(type)))]
+    const classic = b.data.protected && gh(`repos/${repo}/branches/${enc}/protection`)
+    const checks = classic?.ok && classic.data.required_status_checks
+    if (classic?.ok && (checks?.contexts?.length || checks?.checks?.length || classic.data.required_pull_request_reviews || classic.data.restrictions)) blocking.push('branch protection')
+    if (blocking.length) problems.push(`${blocking.join(', ')} on ${branch} would refuse a direct write of ${WORKFLOW}; land it there through the repository's usual flow, then enroll again`)
     writes.push({ branch, ...(file.ok && { sha: file.data.sha }) })
   }
   const rulesets = [def, ...integration].map((branch) => ({ id: existing.get(context(branch, def)), body: ruleset(branch, def) }))
