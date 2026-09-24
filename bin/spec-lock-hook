@@ -1,0 +1,28 @@
+#!/bin/sh
+# Git hook adapter for spec-lock. Git runs it as: spec-lock-hook <event> <hook args...>
+# It fails closed: a missing Node, a crashed checker or an unreadable object refuses the update.
+event=$1
+shift
+case $event in
+reference-transaction)
+  # Only the prepared state can still stop an update.
+  [ "$1" = prepared ] || exit 0 ;;
+*)
+  echo "spec-lock: unknown hook event '$event', refusing" >&2
+  exit 1 ;;
+esac
+input=$(cat)
+if ! command -v node >/dev/null 2>&1; then
+  # Without Node the policy cannot tell which branch is protected, so every local branch is refused.
+  case $input in
+  *" refs/heads/"*)
+    echo "spec-lock: node is not on PATH, so this branch update cannot be checked and is refused. Put node on the PATH this git runs with." >&2
+    exit 1 ;;
+  esac
+  exit 0
+fi
+printf '%s\n' "$input" | node "$(dirname "$0")/spec-lock" "$event"
+status=$?
+[ "$status" -le 1 ] && exit "$status"
+echo "spec-lock: the checker failed (exit $status), so the update is refused." >&2
+exit 1
