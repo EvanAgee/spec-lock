@@ -4,6 +4,6 @@
   "description": "Refuses code that reaches a protected branch without a spec in the hardened shape and a proof naming every acceptance criterion.",
   "type": "module",
   "bin": { "spec-lock": "bin/spec-lock" },
-  "scripts": { "test": "node --test test/spec-lock.test.mjs" },
+  "scripts": { "test": "node --test test/spec-lock.test.mjs test/evidence.test.mjs" },
   "engines": { "node": ">=22" }
 }

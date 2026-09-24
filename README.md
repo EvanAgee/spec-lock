@@ -20,6 +20,42 @@ Three moves need no proof:
 - A pull. A path whose landed content matches the tip of a remote's default branch (`refs/remotes/<remote>/HEAD`) is not part of the landing, so pulled work passes while local code on top of it still needs a proof.
 - A repository's first commit. An update that names no old value on an existing branch is not one, and neither is a branch deleted and created again.
 
+## Evidence bindings
+
+A proof may also name an evidence manifest, which binds its acceptance claims to a recorded run of a command on one reviewed commit. The binding is optional: a proof without an `evidence:` field is judged exactly as above.
+
+```markdown
+---
+spec: docs/specs/feature.md
+evidence: docs/proof/feature.evidence.json
+---
+```
+
+The manifest is a JSON object, version 1. Every path in it is relative to the repository root.
+
+| Field | Meaning |
+|---|---|
+| `version` | `1` |
+| `task` | the task the claims are for |
+| `reviewed` | the full commit id C that was reviewed and run |
+| `base` | the full commit id of the review base, an ancestor of C |
+| `claims[]` | one per criterion: `spec` (path), `spec_blob` (the spec's blob id at C), `ac` (`AC<n>`), `state` (`supported` or `unsupported`), `run` (a run id), `judge` (a judge id) |
+| `runs[]` | `id`, `executor`, `command_id`, `argv` (array of strings), `revision`, `exit` (integer, or null when the run never exited), `outcome` (`exited`, `timeout`, `started`, `tracked-files-changed` or `output-over-bound`), `stdout` and `stderr`, each `{path, bytes, sha256}` or null |
+| `judges[]` | `id`, `judge`, `run`, `ac`, `revision`, `base`, `evidence` (`{stdout_sha256, stderr_sha256}`), `verdict` (`supported` or `unsupported`) |
+
+When a proof in a landing names a manifest, the landed commit P must meet all of these, read from committed objects alone. Each refusal names the manifest field it concerns.
+
+1. `evidence` is a path under `docs/proof/` with no empty, `.` or `..` segment, and is a regular file at P holding a JSON object with `version` 1.
+2. `reviewed` and `base` are full commit ids (40 or 64 hex digits, never a prefix); `base` is an ancestor of `reviewed`; `reviewed` is P or an ancestor of P; and every path that differs between `reviewed` and P is an added or edited regular file (mode 100644) under `docs/proof/`, with no deletion, rename, symlink or executable. Code, specs and other documentation changed after C refuse the landing, even though C is still an ancestor.
+3. `claims[]` is not empty. Each claim's `spec` is a regular file at `reviewed` whose blob id is `spec_blob`, and its `ac` is a live criterion of that spec.
+4. Each claim's `run` and `judge` name exactly one entry in `runs[]` and `judges[]`, and that judge's `run` is the claim's run and its `ac` is the claim's `ac`.
+5. Each claimed run has `revision` equal to `reviewed`, `outcome` `exited` and `exit` 0, and non-null `stdout` and `stderr` whose `path` is under `docs/proof/`, is a regular file at P, and has exactly `bytes` bytes with SHA-256 `sha256`. An empty stream is a zero-length file, and it must be present.
+6. Each claimed judge has `revision` equal to `reviewed`, `base` equal to the manifest's `base`, `evidence` equal to its run's two digests, and `verdict` `supported`, and the claim's `state` is `supported`.
+
+The checker cannot know who ran or judged anything. `executor` and `judge` are copies for reading, and the checker never runs a command or fetches a record from anywhere else. The tool that records the runs checks provenance: that the run and judge ids are its own records, made by someone other than the author, with the same bytes.
+
+The check reads C and the review base, so on GitHub a workflow whose proofs carry evidence manifests checks out full history (`fetch-depth: 0`); in a shallow clone those commits are missing and the landing is refused.
+
 ## Which branches, which repositories
 
 The guarded branches are each remote's default branch, `main` and `master`, and the integration branches in the central file. Every other branch is free. Every repository is covered unless the central file leaves it out.
