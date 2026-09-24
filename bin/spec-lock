@@ -3,23 +3,33 @@
 // spec-lock reference-transaction <state> <repo> [guarded branch...]
 //                                    the git hook adapter; reads "<old> <new> <ref>" lines on stdin
 // Exit 1 is a refusal with its reasons; exit 2 means the check could not run, which also refuses.
+// Every verdict ends with the checker line, so the git hook and the GitHub action show they ran the same code.
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { checkRange, referenceTransaction } from '../lib/lock.mjs'
+
+// The package version plus a hash of the files that judge a landing.
+function checker() {
+  const hash = createHash('sha256')
+  for (const file of ['spec-lock', '../lib/lock.mjs', '../lib/spec.mjs']) hash.update(readFileSync(new URL(file, import.meta.url)))
+  const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  return `spec-lock checker ${version}+${hash.digest('hex').slice(0, 12)}`
+}
 
 const [cmd, ...args] = process.argv.slice(2)
 try {
   if (cmd === 'check' && args.length === 2) {
     const faults = checkRange(args[0], args[1])
     if (faults.length) {
-      process.stdout.write(`spec-lock: refused ${args[0]}..${args[1]}\n${faults.map((f) => `- ${f}`).join('\n')}\n`)
+      process.stdout.write(`spec-lock: refused ${args[0]}..${args[1]}\n${faults.map((f) => `- ${f}`).join('\n')}\n${checker()}\n`)
       process.exit(1)
     }
-    process.stdout.write('spec-lock: ok\n')
+    process.stdout.write(`spec-lock: ok\n${checker()}\n`)
   } else if (cmd === 'reference-transaction' && args.length >= 2) {
     const [state, repo, ...guarded] = args
     const out = referenceTransaction(state, readFileSync(0, 'utf8'), repo, guarded)
     if (out.length) {
-      process.stderr.write(out.join('\n') + '\n')
+      process.stderr.write(out.join('\n') + `\n${checker()}\n`)
       process.exit(1)
     }
   } else {

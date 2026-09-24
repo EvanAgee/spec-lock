@@ -47,6 +47,44 @@ spec-lock check <old> <new>   # exit 0 when the move may land, 1 with the reason
 
 A single command can skip the check with `git -c hook.spec-lock-reference-transaction.enabled=false <command>`. That escape is for the repository owner only; agents never use it.
 
+## On GitHub
+
+The same checker runs as a GitHub action. A branch ruleset only accepts a commit on a protected branch after a required check has passed on that commit, so the check runs on pushes to candidate branches, and the checked commit goes to the protected branch afterwards. The workflow:
+
+```yaml
+# .github/workflows/spec-lock.yml
+name: spec-lock
+on:
+  push:
+    branches-ignore: [main]
+permissions:
+  contents: read
+jobs:
+  spec-lock:
+    name: spec-lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: EvanAgee/spec-lock@<full commit sha>
+```
+
+The action judges the pushed commit as a landing on its `target` input, which defaults to the repository's default branch. It fetches the target's tip when the check runs, never the push event's `before` value, which is the candidate branch's previous tip. It prints that tip, then runs `spec-lock check <tip> <commit>`, the same checker the git hook runs, so both print the same faults and the same `spec-lock checker <version>+<hash>` line for the same range. A push to the target itself fails the check, because comparing a branch with itself would pass anything.
+
+Then add a branch ruleset on the protected branch that requires the status check `spec-lock` from GitHub Actions, with no bypass for the accounts that land work. To land a commit:
+
+```sh
+git push origin HEAD:refs/heads/land/my-change   # runs the check on this commit
+git push origin HEAD:main                         # accepted once that check has passed
+```
+
+What the GitHub side does not do:
+
+- A check result belongs to a commit, not to a range. If the target moves after the check passed, the commit keeps its pass. Block force pushes in the ruleset so that such a commit can only land as a fast-forward, and push it to a new candidate branch to check it again.
+- The ruleset binds the check's name to GitHub Actions, not to this workflow. Anyone who can push a workflow can replace the job with one of the same name that always passes.
+
+`node test/github-walk.mjs <owner/repo>` walks a real throwaway repository set up this way. It pushes an unproved commit, a proved one and a forced unproved one through candidate branches to main, and asserts that GitHub refuses the unproved ones, lands the proved one, and that each check job takes under 60 seconds. `SPEC_LOCK_CANARY=<owner/repo> npm test` runs it with the rest of the tests.
+
 ## Tests
 
 ```sh

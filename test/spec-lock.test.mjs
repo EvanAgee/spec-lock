@@ -12,6 +12,7 @@ import { register, HOOK } from '../lib/lock.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CLI = join(ROOT, 'bin', 'spec-lock')
+const ACTION = join(ROOT, 'bin', 'spec-lock-action')
 
 // A hardened spec with the given live ids; struck ids get a ~~ACn~~ row, omit drops a section.
 function specText(ids, { struck = [], omit } = {}) {
@@ -49,6 +50,8 @@ function scratch() {
       ok(...args) { const r = s.git(...args); assert.equal(r.code, 0, `git ${args.join(' ')}: ${r.err}`); return r.out.trim() },
       rev: (ref) => s.ok('rev-parse', ref),
       check: (old, neu) => run('node', [CLI, 'check', old, neu]),
+      // The GitHub action adapter as the runner starts it for a push of sha to ref.
+      action: (sha, target, ref) => run('node', [ACTION], { INPUT_TARGET: target, GITHUB_SHA: sha, GITHUB_REF: ref }),
       // Writes files; a null text deletes the path.
       write(files) {
         for (const [path, text] of Object.entries(files)) {
@@ -524,4 +527,112 @@ test('AC12: a crashed checker, missing Node, or an unreadable object refuses the
   const landed = s.git('update-ref', 'refs/heads/main', v, a)
   assert.equal(landed.code, 0, landed.err)
   assert.equal(s.rev('main'), v)
+})
+
+// Fault lines and the checker line of a verdict, as the git hook or the action printed it.
+const verdict = (text) => text.split('\n').filter((l) => l.startsWith('- ') || l.startsWith('spec-lock checker '))
+
+// A bare repository standing in for GitHub, where this machine's lock does not run, as the origin of s.
+// runner(branch) gives what actions/checkout leaves after a push of that branch: one commit, no other refs.
+function github(s) {
+  const remote = s.at('github.git')
+  mkdirSync(remote.repo)
+  remote.ok('init', '-q', '--bare', '-b', 'main')
+  remote.ok('config', `hook.${HOOK}.enabled`, 'false')
+  s.ok('remote', 'add', 'origin', remote.repo)
+  s.ok('push', '-q', 'origin', 'main')
+  let runs = 0
+  return {
+    runner(branch) {
+      const r = s.at(`runner-${++runs}`)
+      s.unhooked('clone', '-q', '--depth=1', '--branch', branch, `file://${remote.repo}`, r.repo)
+      return r
+    },
+  }
+}
+
+test('AC13: the git hook and the GitHub action run the same check and print the same verdict and checker line', () => {
+  const s = scratch()
+  const a = s.init()
+  const gh = github(s)
+  // The AC3 landing: two proofs, and the second one does not name AC2.
+  const specs = { 'docs/specs/one.md': specText(['AC1', 'AC2']), 'docs/specs/two.md': specText(['AC1', 'AC2']) }
+  const one = { 'docs/proof/one.md': proofText('docs/specs/one.md', ['AC1', 'AC2']) }
+  const b = s.branch('land/feature', { ...code, ...specs, ...one, 'docs/proof/two.md': proofText('docs/specs/two.md', ['AC1', 'AC20']) })
+  s.ok('push', '-q', 'origin', 'land/feature')
+
+  const hook = s.git('merge', '--ff-only', 'land/feature')
+  const action = gh.runner('land/feature').action(b, 'main', 'refs/heads/land/feature')
+  assert.notEqual(hook.code, 0, 'the git hook let the incomplete proof land')
+  assert.equal(action.code, 1, `the action passed the incomplete proof: ${action.out}${action.err}`)
+  assert.match(action.out, new RegExp(`spec-lock: checking ${b} as a landing on main at ${a}`))
+  const printed = verdict(hook.err)
+  assert.equal(printed.length, 2, hook.err)
+  assert.equal(printed[0], '- docs/proof/two.md: does not name AC2 from docs/specs/two.md')
+  assert.match(printed[1], /^spec-lock checker \d+\.\d+\.\d+\+[0-9a-f]{12}$/)
+  assert.deepEqual(verdict(action.out), printed)
+  assert.equal(s.rev('main'), a)
+
+  // Repaired, the next commit passes both, and the action names the same checker.
+  s.restore(a)
+  s.ok('switch', '-q', 'land/feature')
+  const c = s.commit({ 'docs/proof/two.md': proofText('docs/specs/two.md', ['AC1', 'AC2']) })
+  s.ok('switch', '-q', 'main')
+  s.ok('push', '-q', 'origin', 'land/feature')
+  const passed = gh.runner('land/feature').action(c, 'main', 'refs/heads/land/feature')
+  assert.equal(passed.code, 0, passed.out + passed.err)
+  assert.deepEqual(verdict(passed.out), [printed[1]])
+  const landed = s.git('merge', '--ff-only', 'land/feature')
+  assert.equal(landed.code, 0, landed.err)
+  assert.equal(s.rev('main'), c)
+})
+
+test('AC14: the action judges the pushed commit against each target as it stands when the check runs', () => {
+  const s = scratch()
+  const a = s.init()
+  const gh = github(s)
+  // The integration branch already holds unproved code, so its tip is not main's.
+  const i = s.branch('integration/candidate', { 'other.js': 'export const other = 1\n' })
+  s.ok('switch', '-q', '-c', 'land/note', 'integration/candidate')
+  const d = s.commit({ 'notes.md': 'A note.\n' })
+  s.ok('switch', '-q', 'main')
+  s.ok('push', '-q', 'origin', 'integration/candidate', 'land/note')
+
+  // One commit, two targets: a note on the integration branch, unproved code on main.
+  const run = gh.runner('land/note')
+  const onIntegration = run.action(d, 'integration/candidate', 'refs/heads/land/note')
+  assert.equal(onIntegration.code, 0, onIntegration.out + onIntegration.err)
+  assert.match(onIntegration.out, new RegExp(`as a landing on integration/candidate at ${i}`))
+  const onMain = run.action(d, 'main', 'refs/heads/land/note')
+  assert.equal(onMain.code, 1, `the action passed unproved code bound for main: ${onMain.out}`)
+  assert.match(onMain.out, new RegExp(`as a landing on main at ${a}\n[\\s\\S]*- no proof`))
+
+  // E passes while main is A. Once main moves to M, landing E would undo M's code, and the same
+  // check, run again, reads main's new tip and refuses.
+  const e = s.branch('land/e', { 'notes.md': 'A note.\n' })
+  s.ok('push', '-q', 'origin', 'land/e')
+  const runE = gh.runner('land/e')
+  const before = runE.action(e, 'main', 'refs/heads/land/e')
+  assert.equal(before.code, 0, before.out + before.err)
+  const m = s.branch('land/m', { ...code, [SPEC]: specText(['AC1']), 'docs/proof/m.md': proofText(SPEC, ['AC1']) })
+  s.ok('push', '-q', 'origin', 'land/m:main')
+  const after = runE.action(e, 'main', 'refs/heads/land/e')
+  assert.equal(after.code, 1, `a check against a stale main passed: ${after.out}`)
+  assert.match(after.out, new RegExp(`as a landing on main at ${m}\n[\\s\\S]*- no proof`))
+
+  // A push to the target itself has already landed: main's tip against itself is an empty range, which
+  // would pass anything. A target that does not exist cannot be read.
+  const self = runE.action(m, 'main', 'refs/heads/main')
+  assert.equal(self.code, 2, self.out)
+  assert.match(self.err, /spec-lock: this push is to main itself/)
+  const missing = runE.action(e, 'nope', 'refs/heads/land/e')
+  assert.equal(missing.code, 2, missing.out)
+  assert.match(missing.err, /spec-lock: .*nope/)
+})
+
+// The live walk pushes to a real repository, so it runs only when one is named.
+const canary = process.env.SPEC_LOCK_CANARY
+test('AC14 and AC21: GitHub refuses an unproved push to main and a forced one, lands a proved one, and each check takes under 60 seconds', { skip: !canary && 'set SPEC_LOCK_CANARY=<owner/repo> to walk a real GitHub repository' }, () => {
+  const r = spawnSync('node', [join(ROOT, 'test', 'github-walk.mjs'), canary], { encoding: 'utf8', timeout: 1200000 })
+  assert.equal(r.status, 0, r.stdout + r.stderr)
 })

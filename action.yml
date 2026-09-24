@@ -1,0 +1,9 @@
+name: spec-lock
+description: Refuses a candidate commit that would land code on a protected branch without a hardened spec and a proof naming every acceptance criterion.
+inputs:
+  target:
+    description: The protected branch the pushed commit is a candidate for. The check compares the commit with that branch's tip when the check runs.
+    default: ${{ github.event.repository.default_branch }}
+runs:
+  using: node24
+  main: bin/spec-lock-action
