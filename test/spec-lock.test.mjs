@@ -4,7 +4,7 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync, mkdirSync, cpSync, renameSync, symlinkSync, rmSync, readFileSync, realpathSync, chmodSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, cpSync, renameSync, symlinkSync, rmSync, readFileSync, realpathSync, chmodSync, existsSync } from 'node:fs'
 import { tmpdir, loadavg } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +13,7 @@ import { register, HOOK, PUSH_HOOK } from '../lib/lock.mjs'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CLI = join(ROOT, 'bin', 'spec-lock')
 const ACTION = join(ROOT, 'bin', 'spec-lock-action')
+const ROLLOUT = join(ROOT, 'bin', 'spec-lock-rollout')
 
 // A hardened spec with the given live ids; struck ids get a ~~ACn~~ row, omit drops a section.
 function specText(ids, { struck = [], omit } = {}) {
@@ -27,7 +28,7 @@ const proofText = (spec, ids) => `---\n${spec ? `spec: ${spec}\n` : 'title: no s
 const scratchDirs = []
 after(() => { for (const dir of scratchDirs) rmSync(dir, { recursive: true, force: true }) })
 
-// A scratch directory with its own global git config, central spec-lock config, landing log and HOME.
+// A scratch directory with its own global git config, landing log and HOME, which holds the central file.
 // scratch() works in its "repo" directory; s.at(name) gives the same helpers for another directory.
 function scratch() {
   const dir = mkdtempSync(join(tmpdir(), 'spec-lock-test-'))
@@ -37,7 +38,7 @@ function scratch() {
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(GIT_|FM_|SPEC_LOCK_)/.test(k)))
   Object.assign(env, {
     HOME: dir, GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: '1',
-    SPEC_LOCK_CONFIG: join(dir, 'spec-lock.config'), SPEC_LOCK_LOG: join(dir, 'landings.log'),
+    SPEC_LOCK_LOG: join(dir, 'landings.log'),
     GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
     GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
   })
@@ -57,6 +58,7 @@ function scratch() {
       check: (old, neu) => run('node', [CLI, 'check', old, neu]),
       // The GitHub action adapter as the runner starts it for a push of sha to ref.
       action: (sha, target, ref) => run('node', [ACTION], { INPUT_TARGET: target, GITHUB_SHA: sha, GITHUB_REF: ref }),
+      rollout: (args, extra) => run('node', [ROLLOUT, ...args], extra),
       // Writes files; a null text deletes the path.
       write(files) {
         for (const [path, text] of Object.entries(files)) {
@@ -90,9 +92,10 @@ function scratch() {
     }
     return s
   }
+  const centralFile = join(dir, '.config', 'spec-lock', 'config')
   return {
-    ...at(join(dir, 'repo')), dir, config, env, at: (name) => at(join(dir, name)),
-    central: (text) => writeFileSync(env.SPEC_LOCK_CONFIG, text),
+    ...at(join(dir, 'repo')), dir, config, env, centralFile, at: (name) => at(join(dir, name)),
+    central: (text) => { mkdirSync(dirname(centralFile), { recursive: true }); writeFileSync(centralFile, text) },
     // The landing log as rows of [time, repo, ref, old, new, verdict].
     landings: () => { try { return readFileSync(env.SPEC_LOCK_LOG, 'utf8').split('\n').filter(Boolean).map((l) => l.split('\t')) } catch { return [] } },
   }
@@ -421,7 +424,7 @@ test('AC8: a repository on the central opt-out list is not checked; an unlisted 
 
   const exempt = listed.git('merge', '--ff-only', 'feature')
   assert.equal(exempt.code, 0, exempt.err)
-  assert.ok(exempt.err.includes(`spec-lock: not checked: ${realpathSync(listed.repo)} is on the opt-out list in ${s.env.SPEC_LOCK_CONFIG}`), exempt.err)
+  assert.ok(exempt.err.includes(`spec-lock: not checked: ${realpathSync(listed.repo)} is on the opt-out list in ${s.centralFile}`), exempt.err)
   assert.equal(listed.rev('main'), la)
   const worktreeExempt = s.at('listed-wt').gitEnv(noNode(), 'update-ref', 'refs/heads/main', a, la)
   assert.equal(worktreeExempt.code, 0, worktreeExempt.err)
@@ -635,10 +638,11 @@ test('AC14: the action judges the pushed commit against each target as it stands
   assert.match(missing.err, /spec-lock: .*nope/)
 })
 
-// The live walk pushes to a real repository, so it runs only when one is named.
+// The live walk pushes to a real repository, so it runs only when one is named. The canary is enrolled
+// with the integration branch integration/candidate.
 const canary = process.env.SPEC_LOCK_CANARY
-test('AC14 and AC21: GitHub refuses an unproved push to main and a forced one, lands a proved one, and each check takes under 60 seconds', { skip: !canary && 'set SPEC_LOCK_CANARY=<owner/repo> to walk a real GitHub repository' }, () => {
-  const r = spawnSync('node', [join(ROOT, 'test', 'github-walk.mjs'), canary], { encoding: 'utf8', timeout: 1200000 })
+test('AC14, AC15 and AC21: an enrolled GitHub repository refuses unproved pushes to its default and integration branches and a forced one, lands proved ones, and each check takes under 60 seconds', { skip: !canary && 'set SPEC_LOCK_CANARY=<owner/repo> to walk a real GitHub repository' }, () => {
+  const r = spawnSync('node', [join(ROOT, 'test', 'github-walk.mjs'), canary, '--integration', 'integration/candidate'], { encoding: 'utf8', timeout: 1200000 })
   assert.equal(r.status, 0, r.stdout + r.stderr)
 })
 
@@ -832,4 +836,266 @@ test('AC20: the lock adds less than a second to a local landing, valid or refuse
     if (added >= 1000) slow.push(`${name}: added ${Math.round(added)} ms`)
   }
   assert.deepEqual(slow, [])
+})
+
+// The activation record, as rows without their time: "activated", "drained <lane>", "baseline <repo> <ref> <commit>".
+const activation = (s) => { try { return readFileSync(join(dirname(s.env.SPEC_LOCK_LOG), 'activation'), 'utf8').split('\n').filter(Boolean).map((l) => l.split('\t').slice(1).join(' ')) } catch { return [] } }
+
+test('AC19: activation waits until every in-flight lane has landed, records the drained lanes and baselines, and gives an old-style proof no grace', () => {
+  const s = scratch()
+  // A repository with history and no lock yet.
+  mkdirSync(s.repo)
+  s.ok('init', '-q', '-b', 'main')
+  const a = s.commit({ 'base.txt': 'base\n' })
+  const rollout = join(s.dir, 'rollout')
+  const write = (state) => writeFileSync(rollout, `# the lanes in flight and the repositories to baseline\nlane lane-l ${state}\nrepo ${s.repo}\nintegration integration/candidate\n`)
+
+  write('in-flight')
+  const refused = s.rollout(['activate', rollout])
+  assert.equal(refused.code, 1, `activation went ahead with a lane in flight: ${refused.out}${refused.err}`)
+  assert.match(refused.err, /lane lane-l is in-flight/)
+  assert.equal(s.git('config', '--global', '--get-regexp', '^hook\\.').out, '', 'a refused activation installed the hooks')
+  assert.equal(existsSync(s.centralFile), false, 'a refused activation wrote the central file')
+  assert.deepEqual(activation(s), [])
+
+  write('landed')
+  const on = s.rollout(['activate', rollout])
+  assert.equal(on.code, 0, on.out + on.err)
+  assert.deepEqual(activation(s), ['activated', 'drained lane-l', `baseline ${realpathSync(s.repo)} refs/heads/main ${a}`])
+  assert.equal(readFileSync(s.centralFile, 'utf8'), 'integration integration/candidate\n')
+  for (const [event, name] of [['reference-transaction', HOOK], ['pre-push', PUSH_HOOK]]) assert.ok(s.ok('hook', 'list', event).split('\n').includes(name), `${name} is not installed`)
+
+  // No grace: the lane's old-style proof, with no spec field, is refused on the first landing.
+  const oldStyle = '---\ntags: [lane]\ndate: 2026-09-24\nissue: lane-l\nwalked: 0000000\n---\n# Proof\n\nWalked AC1.\n'
+  s.branch('lane-l', { ...code, [SPEC]: specText(['AC1']), 'docs/proof/lane-l.md': oldStyle })
+  const old = s.git('merge', '--ff-only', 'lane-l')
+  assert.notEqual(old.code, 0, 'an old-style proof landed after activation')
+  assert.match(old.err, /docs\/proof\/lane-l\.md: no spec: field/)
+  assert.equal(s.rev('main'), a)
+  s.restore(a)
+  s.ok('switch', '-q', 'lane-l')
+  const c = s.commit({ 'docs/proof/lane-l.md': proofText(SPEC, ['AC1']) })
+  s.ok('switch', '-q', 'main')
+  const landed = s.git('merge', '--ff-only', 'lane-l')
+  assert.equal(landed.code, 0, landed.err)
+  assert.equal(s.rev('main'), c)
+
+  // The central file is the owner's: a rollout file that disagrees with it does not change it.
+  writeFileSync(rollout, `lane lane-l landed\nrepo ${s.repo}\nopt-out ${s.repo}\n`)
+  const disagree = s.rollout(['activate', rollout])
+  assert.equal(disagree.code, 1, disagree.out + disagree.err)
+  assert.match(disagree.err, /already holds other lines/)
+  assert.equal(readFileSync(s.centralFile, 'utf8'), 'integration integration/candidate\n')
+  // A line activation does not know stops it too: a misspelled lane must not drop out of the drain.
+  writeFileSync(rollout, `lanes lane-m in-flight\nrepo ${s.repo}\n`)
+  const typo = s.rollout(['activate', rollout])
+  assert.equal(typo.code, 1, typo.out + typo.err)
+  assert.match(typo.err, /line 1: lanes lane-m in-flight/)
+})
+
+test('repository settings: SPEC_LOCK_CONFIG no longer opts a repository out, and each repository-level override of the hooks is found and stops activation', () => {
+  const s = scratch()
+  const a = s.init()
+  s.branch('feature', code)
+  // The environment variable used to name the central file, so any process could point it at a file of its own.
+  const elsewhere = join(s.dir, 'elsewhere')
+  writeFileSync(elsewhere, `opt-out ${s.repo}\n`)
+  const r = s.gitEnv({ SPEC_LOCK_CONFIG: elsewhere }, 'merge', '--ff-only', 'feature')
+  assert.notEqual(r.code, 0, 'SPEC_LOCK_CONFIG opted the repository out')
+  assert.match(r.err, /spec-lock: refused refs\/heads\/main/)
+  assert.equal(s.rev('main'), a)
+  s.restore(a)
+
+  const clean = s.rollout(['doctor', s.repo])
+  assert.equal(clean.code, 0, clean.out + clean.err)
+  const rollout = join(s.dir, 'rollout')
+  writeFileSync(rollout, `repo ${s.repo}\n`)
+  s.ok('config', 'extensions.worktreeConfig', 'true')
+  const overrides = {
+    'disabled in the repository': [`hook.${HOOK}.enabled`, 'false', 'local'],
+    'another command': [`hook.${PUSH_HOOK}.command`, 'true', 'local'],
+    'an empty event list': [`hook.${PUSH_HOOK}.event`, '', 'local'],
+    'disabled in one worktree': [`hook.${HOOK}.enabled`, 'false', 'worktree'],
+  }
+  const missed = []
+  for (const [name, [key, value, scope]] of Object.entries(overrides)) {
+    s.ok('config', `--${scope}`, key, value)
+    const doctor = s.rollout(['doctor', s.repo])
+    if (doctor.code !== 1 || !doctor.out.includes(`${key} is set in ${scope} config`)) missed.push(`doctor, ${name}: exit ${doctor.code} ${doctor.out}${doctor.err}`)
+    const activate = s.rollout(['activate', rollout])
+    if (activate.code !== 1 || !activate.err.includes(`${key} is set in ${scope} config`)) missed.push(`activate, ${name}: exit ${activate.code} ${activate.err}`)
+    s.ok('config', `--${scope}`, '--unset-all', key)
+  }
+  assert.deepEqual(missed, [])
+  assert.equal(s.rollout(['doctor', s.repo]).code, 0)
+  const notRepo = s.rollout(['doctor', s.dir])
+  assert.equal(notRepo.code, 1, notRepo.out)
+  assert.match(notRepo.out, /not a git repository/)
+})
+
+test('pulled commits: doctor reports a remote-tracking tip its remote does not have, which the pull rule would trust, until a fetch replaces it', () => {
+  const s = scratch()
+  const a = s.init()
+  const remote = s.at('remote.git')
+  mkdirSync(remote.repo)
+  remote.ok('init', '-q', '--bare', '-b', 'main')
+  remote.ok('config', `hook.${HOOK}.enabled`, 'false')
+  s.ok('remote', 'add', 'origin', remote.repo)
+  s.ok('push', '-q', 'origin', 'main')
+  s.ok('remote', 'set-head', 'origin', 'main')
+  const ok = s.rollout(['doctor', s.repo])
+  assert.equal(ok.code, 0, ok.out + ok.err)
+
+  // A local commit written into origin/main passes for a pull; the remote never had it.
+  const b = s.branch('feature', code)
+  s.ok('update-ref', 'refs/remotes/origin/main', b)
+  assert.equal(s.check(a, b).code, 0, 'the trust gap this check exists for has closed; drop this test')
+  const forged = s.rollout(['doctor', s.repo])
+  assert.equal(forged.code, 1, `doctor trusted a tip the remote does not have: ${forged.out}`)
+  assert.ok(forged.out.includes(`origin/HEAD is at ${b}, which origin does not have`), forged.out)
+
+  s.ok('fetch', '-q', 'origin')
+  assert.equal(s.rev('origin/main'), a)
+  assert.equal(s.rollout(['doctor', s.repo]).code, 0)
+})
+
+// A stand-in for the gh CLI: answers "gh api --method M path" from a table keyed "M path" and logs
+// each call with its JSON body. An error entry { status, message } fails the way gh does, as does a
+// path the table does not hold.
+const FAKE_GH = `#!/usr/bin/env node
+const fs = require('node:fs')
+const [, , sub, flag, method, path, ...rest] = process.argv
+const body = rest.includes('--input') ? JSON.parse(fs.readFileSync(0, 'utf8')) : undefined
+fs.appendFileSync(process.env.FAKE_GH_LOG, JSON.stringify({ method, path, body }) + '\\n')
+const table = JSON.parse(fs.readFileSync(process.env.FAKE_GH, 'utf8'))
+const answer = sub === 'api' && flag === '--method' ? table[method + ' ' + path] : undefined
+if (answer === undefined || answer.status) {
+  const { status = 404, message = 'Not Found' } = answer || {}
+  process.stdout.write(JSON.stringify({ message }))
+  process.stderr.write('gh: ' + message + ' (HTTP ' + status + ')\\n')
+  process.exit(1)
+}
+process.stdout.write(JSON.stringify(answer))
+`
+function fakeGh(s, table) {
+  const bin = join(s.dir, 'fake-bin')
+  mkdirSync(bin, { recursive: true })
+  writeFileSync(join(bin, 'gh'), FAKE_GH)
+  chmodSync(join(bin, 'gh'), 0o755)
+  const file = join(s.dir, 'gh-table.json')
+  const log = join(s.dir, 'gh-log')
+  writeFileSync(log, '')
+  writeFileSync(file, JSON.stringify(table))
+  return {
+    env: { PATH: `${bin}:${s.env.PATH}`, FAKE_GH: file, FAKE_GH_LOG: log },
+    set: (more) => writeFileSync(file, JSON.stringify(Object.assign(table, more))),
+    calls: () => readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)),
+    clear: () => writeFileSync(log, ''),
+  }
+}
+
+test('AC15 and AC16: enrollment writes the checker workflow, then one ruleset per protected branch that requires its own check from GitHub Actions, blocks force pushes and deletion, and has no bypass', () => {
+  const s = scratch()
+  mkdirSync(s.repo)
+  s.ok('config', '--global', 'user.name', 'Fixture')
+  s.ok('config', '--global', 'user.email', 'fixture@example.invalid')
+  const sha = 'a'.repeat(40)
+  const wf = '.github/workflows/spec-lock.yml'
+  const gh = fakeGh(s, {
+    'GET repos/o/r': { default_branch: 'trunk', visibility: 'private', archived: false, owner: { login: 'o', type: 'User' }, permissions: { admin: true } },
+    'GET repos/o/r/rulesets?includes_parents=false': [],
+    'GET repos/o/r/actions/permissions': { enabled: true, allowed_actions: 'all' },
+    [`GET repos/EvanAgee/spec-lock/commits/${sha}`]: { sha },
+    'GET repos/o/r/branches/trunk': { name: 'trunk' },
+    'GET repos/o/r/branches/integration%2Fcandidate': { name: 'integration/candidate' },
+    [`PUT repos/o/r/contents/${wf}`]: {},
+    'POST repos/o/r/rulesets': { id: 7 },
+  })
+  const args = ['enroll', 'o/r', '--integration', 'integration/candidate', '--action', sha]
+
+  // The plan, before anything changes.
+  const planned = s.rollout(args, gh.env)
+  assert.equal(planned.code, 0, planned.out + planned.err)
+  const plan = JSON.parse(planned.out)
+  assert.deepEqual(gh.calls().filter((c) => c.method !== 'GET'), [], 'a plan wrote to GitHub')
+  const rule = (include, context) => ({
+    name: context, target: 'branch', enforcement: 'active', bypass_actors: [],
+    conditions: { ref_name: { include: [include], exclude: [] } },
+    rules: [
+      { type: 'deletion' },
+      { type: 'non_fast_forward' },
+      { type: 'required_status_checks', parameters: { strict_required_status_checks_policy: false, do_not_enforce_on_create: false, required_status_checks: [{ context, integration_id: 15368 }] } },
+    ],
+  })
+  const want = [rule('~DEFAULT_BRANCH', 'spec-lock'), rule('refs/heads/integration/candidate', 'spec-lock integration/candidate')]
+  assert.deepEqual(plan.rulesets.map((r) => r.body), want)
+  assert.deepEqual(plan.problems, [])
+
+  // The template a new repository starts from is the same workflow, one job per protected branch.
+  const template = s.rollout(['workflow', '--default', 'trunk', '--integration', 'integration/candidate', '--action', sha])
+  assert.equal(template.code, 0, template.err)
+  assert.equal(plan.workflow, template.out)
+  for (const line of ['    branches-ignore: ["trunk","integration/candidate"]', '    name: "spec-lock"', '    name: "spec-lock integration/candidate"', `      - uses: EvanAgee/spec-lock@${sha}`, '          target: "integration/candidate"']) {
+    assert.ok(template.out.split('\n').includes(line), `the workflow lacks: ${line}\n${template.out}`)
+  }
+
+  // Applied: the workflow reaches each protected branch before any ruleset guards it.
+  const rules = want.map((r) => ({ ...r.rules[2], ruleset_id: 7 })).map((r, i) => [...want[i].rules.slice(0, 2), r])
+  gh.set({ 'GET repos/o/r/rules/branches/trunk': rules[0], 'GET repos/o/r/rules/branches/integration%2Fcandidate': rules[1] })
+  gh.clear()
+  const applied = s.rollout([...args, '--apply'], gh.env)
+  assert.equal(applied.code, 0, applied.out + applied.err)
+  const writes = gh.calls().filter((c) => c.method !== 'GET')
+  assert.deepEqual(writes.map((c) => `${c.method} ${c.path} ${c.body.branch ?? c.body.name}`), [
+    `PUT repos/o/r/contents/${wf} trunk`,
+    `PUT repos/o/r/contents/${wf} integration/candidate`,
+    'POST repos/o/r/rulesets spec-lock',
+    'POST repos/o/r/rulesets spec-lock integration/candidate',
+  ])
+  assert.equal(Buffer.from(writes[0].body.content, 'base64').toString(), template.out)
+  assert.deepEqual(writes[0].body.committer, { name: 'Fixture', email: 'fixture@example.invalid' })
+  assert.deepEqual(writes.slice(2).map((c) => c.body), want)
+
+  // A readback that lacks the check fails the enrollment.
+  gh.set({ 'GET repos/o/r/rules/branches/integration%2Fcandidate': rules[1].slice(0, 2) })
+  const unread = s.rollout([...args, '--apply'], gh.env)
+  assert.equal(unread.code, 1, unread.out + unread.err)
+  assert.match(unread.err, /integration\/candidate does not require spec-lock integration\/candidate from GitHub Actions/)
+})
+
+test('AC15: enrollment refuses, and changes nothing, where public actions or rulesets are not available or a guarded workflow would change', () => {
+  const s = scratch()
+  mkdirSync(s.repo)
+  const sha = 'b'.repeat(40)
+  const base = {
+    'GET repos/o/r': { default_branch: 'main', visibility: 'private', archived: false, owner: { login: 'o', type: 'Organization' }, permissions: { admin: true } },
+    'GET repos/o/r/rulesets?includes_parents=false': [],
+    'GET repos/o/r/actions/permissions': { enabled: true, allowed_actions: 'all' },
+    'GET orgs/o/actions/permissions': { enabled_repositories: 'all', allowed_actions: 'all' },
+    [`GET repos/EvanAgee/spec-lock/commits/${sha}`]: { sha },
+    'GET repos/o/r/branches/main': { name: 'main' },
+  }
+  const cases = {
+    'actions off': [{ 'GET repos/o/r/actions/permissions': { enabled: false } }, /GitHub Actions is off/],
+    'local actions only': [{ 'GET repos/o/r/actions/permissions': { enabled: true, allowed_actions: 'local_only' } }, /allows only its own actions/],
+    'selected, spec-lock not listed': [{ 'GET repos/o/r/actions/permissions': { enabled: true, allowed_actions: 'selected' }, 'GET repos/o/r/actions/permissions/selected-actions': { github_owned_allowed: true, patterns_allowed: ['octo/*'] } }, new RegExp(`does not allow EvanAgee/spec-lock@${sha}`)],
+    'selected, checkout not allowed': [{ 'GET repos/o/r/actions/permissions': { enabled: true, allowed_actions: 'selected' }, 'GET repos/o/r/actions/permissions/selected-actions': { github_owned_allowed: false, patterns_allowed: ['EvanAgee/spec-lock@*'] } }, /does not allow actions\/checkout/],
+    'organization blocks it': [{ 'GET orgs/o/actions/permissions': { enabled_repositories: 'all', allowed_actions: 'local_only' } }, /organization o allows only its own actions/],
+    'no rulesets on this plan': [{ 'GET repos/o/r/rulesets?includes_parents=false': { status: 403, message: 'Upgrade to GitHub Pro or make this repository public to enable this feature.' } }, /rulesets are not available: Upgrade to GitHub Pro/],
+    'not an admin': [{ 'GET repos/o/r': { ...base['GET repos/o/r'], permissions: { admin: false } } }, /not an admin/],
+    'action commit not on GitHub': [{ [`GET repos/EvanAgee/spec-lock/commits/${sha}`]: { status: 422, message: 'No commit found' } }, /is not a commit of EvanAgee\/spec-lock/],
+    'guarded workflow would change': [{ 'GET repos/o/r/rulesets?includes_parents=false': [{ id: 3, name: 'spec-lock' }], 'GET repos/o/r/contents/.github/workflows/spec-lock.yml?ref=main': { sha: 'f'.repeat(40), content: Buffer.from('old\n').toString('base64') } }, /the spec-lock ruleset already guards main/],
+  }
+  const allowed = []
+  for (const [name, [change, fault]] of Object.entries(cases)) {
+    const gh = fakeGh(s, { ...base, ...change })
+    const r = s.rollout(['enroll', 'o/r', '--action', sha, '--apply'], gh.env)
+    const writes = gh.calls().filter((c) => c.method !== 'GET')
+    if (r.code !== 1 || !fault.test(r.out + r.err) || writes.length) allowed.push(`${name}: exit ${r.code}, ${writes.length} writes, ${r.out}${r.err}`)
+  }
+  assert.deepEqual(allowed, [])
+  // Allowed patterns do allow it.
+  const gh = fakeGh(s, { ...base, 'GET repos/o/r/actions/permissions': { enabled: true, allowed_actions: 'selected' }, 'GET repos/o/r/actions/permissions/selected-actions': { github_owned_allowed: true, patterns_allowed: ['EvanAgee/*'] } })
+  const r = s.rollout(['enroll', 'o/r', '--action', sha], gh.env)
+  assert.equal(r.code, 0, r.out + r.err)
 })

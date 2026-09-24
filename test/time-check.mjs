@@ -1,8 +1,9 @@
 // Times the lock on a real repository without changing it. Each sample runs `spec-lock check <old> <new>`
 // alone, then the git adapter the way git runs it for a move of main from old to new: preparing, prepared,
 // then committed (or aborted after a refusal). The adapter's total is the time the lock adds to that landing.
-// The adapter's central file and landing log go to a scratch directory, and a fast-forward leaves no
-// pending move, so nothing is written to the repository. Pick a pair where old is an ancestor of new.
+// The adapter's HOME, which holds the central file, and its landing log go to a scratch directory,
+// and a fast-forward leaves no pending move, so nothing is written to the repository. Pick a pair
+// where old is an ancestor of new.
 // Run: node test/time-check.mjs <repository> <old> <new> [samples]
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -14,7 +15,7 @@ const BIN = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin')
 const [repo, old, neu, samples = '5'] = process.argv.slice(2)
 const scratch = mkdtempSync(join(tmpdir(), 'spec-lock-time-'))
 const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(GIT_|FM_|SPEC_LOCK_)/.test(k)))
-Object.assign(env, { SPEC_LOCK_CONFIG: join(scratch, 'config'), SPEC_LOCK_LOG: join(scratch, 'landings.log') })
+Object.assign(env, { HOME: scratch, SPEC_LOCK_LOG: join(scratch, 'landings.log') })
 
 const run = (cmd, args, input = '') => {
   const t0 = process.hrtime.bigint()

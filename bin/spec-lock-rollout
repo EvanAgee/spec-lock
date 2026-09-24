@@ -1,0 +1,299 @@
+#!/usr/bin/env node
+// Switches the lock on for this machine and enrolls GitHub repositories in it.
+//
+// spec-lock-rollout activate <rollout file>
+//     Once every lane in the file has landed: write the central file, add the two hooks to the global
+//     git config, record the drained lanes and each repository's guarded tips, and confirm git runs the
+//     hooks in each repository. It changes nothing while a lane is in flight or a repository's own config
+//     overrides the hooks.
+// spec-lock-rollout doctor <repository>...
+//     Reports what can switch the lock off in a repository, or fool its pull rule.
+// spec-lock-rollout workflow [--default <branch>] [--integration <branch>]... [--action <sha>]
+//     Prints the workflow a repository runs: one check job per protected branch. It is the template a
+//     new repository starts from.
+// spec-lock-rollout enroll <owner/repo> [--integration <branch>]... [--action <sha>] [--apply]
+//     Checks that a GitHub repository can run the check and hold rulesets and prints the plan as JSON.
+//     With --apply it writes the workflow to each protected branch, then one ruleset per branch, and
+//     reads back what GitHub applies to each.
+//
+// The rollout file holds one entry per line, and # starts a comment:
+//   lane <id> <state>          a lane from any home; activation waits until each one is "landed"
+//   repo <absolute path>       a repository to check and baseline
+//   integration <branch>       an integration branch, written to the central file
+//   opt-out <absolute path>    a repository the lock leaves alone, written to the central file
+import { execFileSync, spawnSync } from 'node:child_process'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, isAbsolute, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { HOOK, PUSH_HOOK, logFile, register } from '../lib/lock.mjs'
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const HOOKS = { 'reference-transaction': HOOK, 'pre-push': PUSH_HOOK }
+const ACTION = 'EvanAgee/spec-lock'
+const CHECKOUT = 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1'
+// The GitHub Actions app. A required check bound to it is met only by a check run from Actions, not by
+// a commit status that anyone with write access can post under the same name.
+const ACTIONS_APP = 15368
+const WORKFLOW = '.github/workflows/spec-lock.yml'
+
+const lines = (text) => text.split('\n').filter(Boolean)
+const git = (repo, ...args) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', timeout: 30000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })
+const stop = (faults) => { process.stderr.write(faults.map((f) => `spec-lock-rollout: ${f}\n`).join('')); process.exit(1) }
+
+// Any hook.spec-lock-* key outside the global config, where activation puts the hooks. A repository,
+// worktree or included file can use one to switch a hook off, run another command under its name, or
+// empty its event list, and git would then skip the lock in that repository without a word.
+function overrides(repo) {
+  if (git(repo, 'rev-parse', '--git-dir').status !== 0) return [`${repo} is not a git repository`]
+  const keys = lines(git(repo, 'config', '--show-scope', '--get-regexp', '^hook\\.spec-lock-').stdout).map((l) => l.split(/\s+/))
+  return keys.filter(([scope]) => scope !== 'global').map(([scope, key]) => `${repo}: ${key} is set in ${scope} config, which overrides the global hook`)
+}
+
+// The shared hooks git would not run in a repository right now; a disabled one is listed as such.
+const missing = (repo) => Object.entries(HOOKS)
+  .filter(([event, name]) => !lines(git(repo, 'hook', 'list', event).stdout).includes(name))
+  .map(([event, name]) => `${repo}: git does not run ${name} on ${event}`)
+
+// The pull rule lets content that matches a remote's default-branch tip land without a proof, and that
+// tip is a local ref anything can write. Each one must be the remote's tip, or behind it.
+function untrusted(repo) {
+  const out = []
+  for (const line of lines(git(repo, 'for-each-ref', '--format=%(refname:lstrip=2) %(objectname)', 'refs/remotes/*/HEAD').stdout)) {
+    const [head, tip] = line.split(' ')
+    const remote = head.slice(0, -'/HEAD'.length)
+    const ls = git(repo, 'ls-remote', remote, 'HEAD')
+    const real = lines(ls.stdout).map((l) => l.split('\t')[0])[0]
+    if (ls.status !== 0 || !real) out.push(`${repo}: cannot read the tip of ${remote} to confirm ${head} at ${tip}`)
+    else if (real !== tip && git(repo, 'merge-base', '--is-ancestor', tip, real).status !== 0) {
+      out.push(`${repo}: ${head} is at ${tip}, which ${remote} does not have; fetch ${remote}, since the lock lets content matching it land as a pull`)
+    }
+  }
+  return out
+}
+
+function doctor(repos) {
+  let found = 0
+  for (const repo of repos) {
+    const faults = overrides(repo)
+    if (!faults[0]?.endsWith('not a git repository')) faults.push(...missing(repo), ...untrusted(repo))
+    process.stdout.write(faults.length ? faults.map((f) => `${f}\n`).join('') : `${repo}: ok\n`)
+    found += faults.length
+  }
+  process.exit(found ? 1 : 0)
+}
+
+// The repository as the hook names it in the landing log: its main worktree, or itself when bare.
+const identity = (repo) => realpathSync(git(repo, 'rev-parse', '--path-format=absolute', '--git-common-dir').stdout.trim().replace(/\/\.git$/, ''))
+
+// The guarded branches the hook would see in a repository, with their tips now.
+function baselines(repo, integration) {
+  const names = new Set(['main', 'master', ...lines(git(repo, 'for-each-ref', '--format=%(symref:lstrip=3)', 'refs/remotes/*/HEAD').stdout), ...integration])
+  return lines(git(repo, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads').stdout).map((l) => l.split(' ')).filter(([ref]) => names.has(ref.slice('refs/heads/'.length)))
+}
+
+function activate(file) {
+  const lanes = []
+  const repos = []
+  const wanted = []
+  const faults = []
+  for (const [n, raw] of readFileSync(file, 'utf8').split('\n').entries()) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const key = line.split(/\s/)[0]
+    const value = line.slice(key.length).trim()
+    if (key === 'lane' && /^\S+\s+\S+$/.test(value)) lanes.push(value.split(/\s+/))
+    else if (key === 'repo' && isAbsolute(value)) repos.push(value)
+    else if ((key === 'integration' || key === 'opt-out') && value) wanted.push(`${key} ${value}`)
+    // An entry this does not know could be a lane that would drop out of the drain, so it stops activation.
+    else faults.push(`${file} line ${n + 1}: ${raw}: not a lane <id> <state>, repo <absolute path>, integration or opt-out entry`)
+  }
+  // There is no grace period: a lane that has not landed would land under the lock with its old proof.
+  for (const [id, state] of lanes) if (state !== 'landed') faults.push(`lane ${id} is ${state}; activate once it has landed`)
+  for (const repo of repos) faults.push(...overrides(repo))
+  const central = join(homedir(), '.config', 'spec-lock', 'config')
+  const entries = (text) => lines(text).map((l) => l.trim().split(/\s+/)).filter(([k]) => k === 'integration' || k === 'opt-out').map((e) => e.join(' ')).sort().join('\n')
+  const have = existsSync(central) ? readFileSync(central, 'utf8') : null
+  if (have !== null && entries(have) !== entries(wanted.join('\n'))) faults.push(`${central} already holds other lines than the rollout file; only its owner edits it, so make the two agree`)
+  if (faults.length) stop(faults)
+
+  if (have === null) {
+    mkdirSync(dirname(central), { recursive: true })
+    writeFileSync(central, wanted.map((l) => `${l}\n`).join(''))
+  }
+  register()
+  const now = new Date().toISOString()
+  const integration = wanted.filter((l) => l.startsWith('integration ')).map((l) => l.slice('integration '.length))
+  const record = [
+    [now, 'activated'],
+    ...lanes.map(([id]) => [now, 'drained', id]),
+    ...repos.flatMap((repo) => baselines(repo, integration).map(([ref, oid]) => [now, 'baseline', identity(repo), ref, oid])),
+  ].map((r) => `${r.join('\t')}\n`).join('')
+  const recordFile = join(dirname(logFile()), 'activation')
+  mkdirSync(dirname(recordFile), { recursive: true })
+  appendFileSync(recordFile, record)
+  process.stdout.write(`${record}central file ${central}\nactivation record ${recordFile}\n`)
+  const unrun = repos.flatMap(missing)
+  if (unrun.length) stop(unrun)
+}
+
+// The check each protected branch requires; the default branch keeps the plain name.
+const context = (branch, def) => (branch === def ? 'spec-lock' : `spec-lock ${branch}`)
+
+// The workflow: on a push to any other branch, one job per protected branch judges the pushed commit
+// as a landing there. Each branch requires its own job, so a pass computed for one target never
+// admits a commit to another.
+function workflow(sha, def, integration) {
+  const job = (branch, i) => [
+    `  ${i ? `spec-lock-${i}` : 'spec-lock'}:`,
+    `    name: ${JSON.stringify(context(branch, def))}`,
+    '    runs-on: ubuntu-latest',
+    '    timeout-minutes: 5',
+    '    steps:',
+    `      - uses: ${CHECKOUT}`,
+    `      - uses: ${ACTION}@${sha}`,
+    ...(i ? ['        with:', `          target: ${JSON.stringify(branch)}`] : []),
+  ]
+  return [
+    `# Written by spec-lock-rollout. A branch ruleset requires each job before its branch moves.`,
+    'name: spec-lock',
+    'on:',
+    '  push:',
+    `    branches-ignore: ${JSON.stringify([def, ...integration])}`,
+    'permissions:',
+    '  contents: read',
+    'jobs:',
+    ...[def, ...integration].flatMap(job),
+  ].join('\n') + '\n'
+}
+
+// One branch ruleset per protected branch: its own check from GitHub Actions, no force push, no
+// deletion, and no one who may bypass them.
+const ruleset = (branch, def) => ({
+  name: context(branch, def),
+  target: 'branch',
+  enforcement: 'active',
+  bypass_actors: [],
+  conditions: { ref_name: { include: [branch === def ? '~DEFAULT_BRANCH' : `refs/heads/${branch}`], exclude: [] } },
+  rules: [
+    { type: 'deletion' },
+    { type: 'non_fast_forward' },
+    { type: 'required_status_checks', parameters: { strict_required_status_checks_policy: false, do_not_enforce_on_create: false, required_status_checks: [{ context: context(branch, def), integration_id: ACTIONS_APP }] } },
+  ],
+})
+
+// gh api, returning the parsed answer or the status and message of a failure.
+function gh(path, method = 'GET', body) {
+  const r = spawnSync('gh', ['api', '--method', method, path, ...(body ? ['--input', '-'] : [])], { input: body ? JSON.stringify(body) : '', encoding: 'utf8', timeout: 60000 })
+  if (r.status === 0) return { ok: true, data: r.stdout.trim() ? JSON.parse(r.stdout) : null }
+  let message = r.error?.message || r.stderr.trim()
+  try { message = JSON.parse(r.stdout).message || message } catch { /* not JSON */ }
+  return { ok: false, status: Number(/HTTP (\d{3})/.exec(r.stderr)?.[1]) || 0, message }
+}
+
+// Why an Actions policy would stop a workflow running actions/checkout and the checker at sha.
+function policy(path, who, sha) {
+  const p = gh(`${path}/actions/permissions`)
+  if (!p.ok) return [`cannot read the Actions policy of ${who}: ${p.message}`]
+  if (p.data.enabled === false || p.data.enabled_repositories === 'none') return [`GitHub Actions is off for ${who}`]
+  if (p.data.allowed_actions === 'local_only') return [`${who} allows only its own actions, so it cannot run ${ACTION}`]
+  if (p.data.allowed_actions !== 'selected') return []
+  const s = gh(`${path}/actions/permissions/selected-actions`)
+  if (!s.ok) return [`cannot read the actions ${who} allows: ${s.message}`]
+  const glob = (pattern) => new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`, 'i')
+  return [
+    ...(s.data.github_owned_allowed ? [] : [`${who} does not allow actions/checkout`]),
+    ...((s.data.patterns_allowed ?? []).some((p) => glob(p).test(`${ACTION}@${sha}`)) ? [] : [`${who} does not allow ${ACTION}@${sha}`]),
+  ]
+}
+
+function plan(repo, integration, sha) {
+  const info = gh(`repos/${repo}`)
+  if (!info.ok) return { repo, problems: [`cannot read ${repo}: ${info.message}`] }
+  const { default_branch: def, visibility, archived, owner, permissions } = info.data
+  const facts = { default: def, visibility, owner: owner.login, ownerType: owner.type }
+  const problems = []
+  if (archived) problems.push(`${repo} is archived`)
+  if (!permissions?.admin) problems.push(`you are not an admin of ${repo}, so you cannot add its rulesets`)
+  const sets = gh(`repos/${repo}/rulesets?includes_parents=false`)
+  if (!sets.ok) problems.push(`rulesets are not available: ${sets.message}`)
+  const existing = new Map((sets.ok ? sets.data : []).map((r) => [r.name, r.id]))
+  problems.push(...policy(`repos/${repo}`, repo, sha))
+  // An organization's policy is readable only by its owners. When it is not, the first candidate push
+  // after enrollment shows whether the check runs.
+  if (owner.type === 'Organization') {
+    const org = policy(`orgs/${owner.login}`, `organization ${owner.login}`, sha)
+    if (org[0]?.startsWith('cannot read')) facts.organizationPolicy = org[0]
+    else problems.push(...org)
+  }
+  const commit = gh(`repos/${ACTION}/commits/${sha}`)
+  if (!commit.ok) problems.push(`${sha} is not a commit of ${ACTION} on GitHub: ${commit.message}`)
+
+  const text = workflow(sha, def, integration)
+  const writes = []
+  for (const branch of [def, ...integration]) {
+    const b = gh(`repos/${repo}/branches/${encodeURIComponent(branch)}`)
+    if (!b.ok) { problems.push(`branch ${branch} is not on ${repo} (${b.message}); enroll once it exists`); continue }
+    const file = gh(`repos/${repo}/contents/${WORKFLOW}?ref=${encodeURIComponent(branch)}`)
+    if (!file.ok && file.status !== 404) { problems.push(`cannot read ${WORKFLOW} on ${branch}: ${file.message}`); continue }
+    if (file.ok && Buffer.from(file.data.content, 'base64').toString() === text) continue
+    // The ruleset would refuse the write: the new commit has no passing check yet.
+    const name = context(branch, def)
+    if (existing.has(name)) problems.push(`the ${name} ruleset already guards ${branch}, so the workflow change must land there like any code change, with a proof; enroll again after that`)
+    writes.push({ branch, ...(file.ok && { sha: file.data.sha }) })
+  }
+  const rulesets = [def, ...integration].map((branch) => ({ id: existing.get(context(branch, def)), body: ruleset(branch, def) }))
+  return { repo, facts, problems, workflow: text, writes, rulesets }
+}
+
+function enroll(repo, integration, sha, apply) {
+  const p = plan(repo, integration, sha)
+  process.stdout.write(JSON.stringify(p, null, 2) + '\n')
+  if (p.problems.length) stop(p.problems)
+  if (!apply) return
+  const config = (key) => spawnSync('git', ['config', key], { encoding: 'utf8' }).stdout.trim()
+  const who = { name: config('user.name'), email: config('user.email') }
+  if (!who.name || !who.email) stop(['set git user.name and user.email: the workflow commits carry them'])
+  const done = (r, what) => { if (!r.ok) stop([`${what}: ${r.message}`]); process.stderr.write(`spec-lock-rollout: ${what}\n`) }
+  // The workflow first: once a ruleset guards a branch, a commit without a passing check cannot reach it.
+  for (const w of p.writes) {
+    const body = { message: 'ci(spec-lock): check each candidate commit before it lands', content: Buffer.from(p.workflow).toString('base64'), branch: w.branch, ...(w.sha && { sha: w.sha }), committer: who, author: who }
+    done(gh(`repos/${repo}/contents/${WORKFLOW}`, 'PUT', body), `wrote ${WORKFLOW} on ${w.branch}`)
+  }
+  for (const r of p.rulesets) {
+    done(r.id ? gh(`repos/${repo}/rulesets/${r.id}`, 'PUT', r.body) : gh(`repos/${repo}/rulesets`, 'POST', r.body), `${r.id ? 'updated' : 'created'} ruleset ${r.body.name}`)
+  }
+  const faults = []
+  for (const branch of [p.facts.default, ...integration]) {
+    const rules = gh(`repos/${repo}/rules/branches/${encodeURIComponent(branch)}`)
+    const has = (test) => rules.ok && rules.data.some(test)
+    const name = context(branch, p.facts.default)
+    if (!has((r) => r.type === 'required_status_checks' && r.parameters.required_status_checks.some((c) => c.context === name && c.integration_id === ACTIONS_APP))) faults.push(`${branch} does not require ${name} from GitHub Actions`)
+    if (!has((r) => r.type === 'non_fast_forward')) faults.push(`${branch} still takes force pushes`)
+    if (!has((r) => r.type === 'deletion')) faults.push(`${branch} can still be deleted`)
+  }
+  if (faults.length) stop(faults)
+  process.stderr.write(`spec-lock-rollout: ${repo} requires the check on ${[p.facts.default, ...integration].join(', ')}\n`)
+}
+
+function options(args) {
+  const o = { integration: [], apply: false, rest: [] }
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--apply') o.apply = true
+    else if (args[i] === '--integration') o.integration.push(args[++i])
+    else if (args[i] === '--default' || args[i] === '--action') o[args[i].slice(2)] = args[++i]
+    else o.rest.push(args[i])
+  }
+  o.action ??= execFileSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+  const bad = [...o.integration, o.default ?? 'main'].some((b) => !b || b.startsWith('-')) || !/^[0-9a-f]{40}$/.test(o.action)
+  return bad ? null : o
+}
+
+const USAGE = 'usage: spec-lock-rollout activate <rollout file>\n       spec-lock-rollout doctor <repository>...\n       spec-lock-rollout workflow [--default <branch>] [--integration <branch>]... [--action <sha>]\n       spec-lock-rollout enroll <owner/repo> [--integration <branch>]... [--action <sha>] [--apply]\n'
+const [cmd, ...args] = process.argv.slice(2)
+const o = (cmd === 'workflow' || cmd === 'enroll') && options(args)
+if (cmd === 'activate' && args.length === 1) activate(args[0])
+else if (cmd === 'doctor' && args.length) doctor(args)
+else if (cmd === 'workflow' && o && !o.rest.length && !o.apply) process.stdout.write(workflow(o.action, o.default ?? 'main', o.integration))
+else if (cmd === 'enroll' && o && o.rest.length === 1 && /^[\w.-]+\/[\w.-]+$/.test(o.rest[0]) && !o.default) enroll(o.rest[0], o.integration, o.action, o.apply)
+else { process.stderr.write(USAGE); process.exit(2) }

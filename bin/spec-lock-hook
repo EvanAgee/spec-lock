@@ -27,7 +27,8 @@ while read -r line; do input="$input$line
 case $input in *" refs/heads/"*) ;; *) exit 0 ;; esac
 
 # The owner's central file: "integration <branch>" and "opt-out <absolute repository path>" lines.
-config=${SPEC_LOCK_CONFIG:-$HOME/.config/spec-lock/config}
+# Only HOME places it: an environment variable of its own would let any process opt a repository out.
+config=$HOME/.config/spec-lock/config
 listed() {
   [ -r "$config" ] || return 0
   while read -r key value; do [ "$key" = "$1" ] && printf '%s\n' "$value"; done < "$config"
