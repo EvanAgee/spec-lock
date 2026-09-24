@@ -44,7 +44,7 @@ function fixture() {
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(GIT_|FM_|SPEC_LOCK_)/.test(k)))
   Object.assign(env, {
     HOME: dir, GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: '1',
-    SPEC_LOCK_CONFIG: join(dir, 'spec-lock.config'), SPEC_LOCK_LOG: join(dir, 'landings.log'),
+    SPEC_LOCK_LOG: join(dir, 'landings.log'),
     GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
     GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
   })
