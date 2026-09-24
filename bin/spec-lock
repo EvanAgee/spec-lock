@@ -2,11 +2,13 @@
 // spec-lock check <old> <new>        exit 0 when moving a protected branch from old to new may land
 // spec-lock reference-transaction <state> <repo> [guarded branch...]
 //                                    the git hook adapter; reads "<old> <new> <ref>" lines on stdin
+// spec-lock pre-push <remote> <repo> [guarded branch...]
+//                                    the push adapter; reads git's pre-push lines on stdin
 // Exit 1 is a refusal with its reasons; exit 2 means the check could not run, which also refuses.
 // Every verdict ends with the checker line, so the git hook and the GitHub action show they ran the same code.
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { checkRange, referenceTransaction } from '../lib/lock.mjs'
+import { checkRange, prePush, referenceTransaction } from '../lib/lock.mjs'
 
 // The package version plus a hash of the files that judge a landing.
 function checker() {
@@ -25,15 +27,16 @@ try {
       process.exit(1)
     }
     process.stdout.write(`spec-lock: ok\n${checker()}\n`)
-  } else if (cmd === 'reference-transaction' && args.length >= 2) {
-    const [state, repo, ...guarded] = args
-    const out = referenceTransaction(state, readFileSync(0, 'utf8'), repo, guarded)
+  } else if ((cmd === 'reference-transaction' || cmd === 'pre-push') && args.length >= 2) {
+    const [arg, repo, ...guarded] = args
+    const input = readFileSync(0, 'utf8')
+    const out = cmd === 'pre-push' ? prePush(arg, input, guarded) : referenceTransaction(arg, input, repo, guarded)
     if (out.length) {
       process.stderr.write(out.join('\n') + `\n${checker()}\n`)
       process.exit(1)
     }
   } else {
-    process.stderr.write('usage: spec-lock check <old> <new>\n       spec-lock reference-transaction <state> <repo> [guarded branch...] < updates\n')
+    process.stderr.write('usage: spec-lock check <old> <new>\n       spec-lock reference-transaction <state> <repo> [guarded branch...] < updates\n       spec-lock pre-push <remote> <repo> [guarded branch...] < pushes\n')
     process.exit(2)
   }
 } catch (e) {

@@ -1,6 +1,6 @@
 # spec-lock
 
-Refuses code that reaches a protected branch without a spec in the hardened shape and a proof naming every acceptance criterion. One checker, called by a global git hook on this Mac and by a GitHub action.
+Refuses code that reaches a protected branch without a spec in the hardened shape and a proof naming every acceptance criterion. One checker, called by two global git hooks on this Mac and by a GitHub action.
 
 ## The rule
 
@@ -43,9 +43,16 @@ Every checked move of a guarded branch appends one tab-separated line to `$SPEC_
 spec-lock check <old> <new>   # exit 0 when the move may land, 1 with the reasons when it may not, 2 when it cannot be checked
 ```
 
-`bin/spec-lock-hook` is the git adapter. `register(configFile)` in `lib/lock.mjs` adds it to a git config file as the config-defined hook `spec-lock-reference-transaction`, which git 2.54 runs beside a repository's own hooks. It refuses in the `prepared` state, so merges, fast-forwards, resets, commits and `update-ref` on a guarded branch all go through it, and it keeps old tips in the `committed` state. It fails closed: a crashed checker, a missing object, or no `node` on the PATH refuses the update. It picks the guarded updates with shell builtins and git alone, so without Node a feature branch still commits.
+`bin/spec-lock-hook` is the git adapter. `register(configFile)` in `lib/lock.mjs` adds it to a git config file as two config-defined hooks, and changes nothing else there:
 
-A single command can skip the check with `git -c hook.spec-lock-reference-transaction.enabled=false <command>`. That escape is for the repository owner only; agents never use it.
+- `spec-lock-reference-transaction` refuses in the `prepared` state, so merges, fast-forwards, resets, commits and `update-ref` on a guarded branch all go through it, and it keeps old tips in the `committed` state.
+- `spec-lock-pre-push` judges each push to a guarded remote branch from the tip the remote advertised to the pushed commit. A force push, a tip that is not a descendant, and another branch pushed to main (`git push origin feature:main`) are checked like a local landing. One refused ref stops the whole push. A branch new to the remote is compared with the empty tree, less what a guarded branch in the local repository already holds. A push whose remote tip is not in the local repository cannot be checked and is refused; fetch first.
+
+Git 2.54 runs config-defined hooks beside a repository's own, so neither replaces a husky `.husky/_` folder, a tracked `.githooks` folder, an absolute or default `.git/hooks` folder, or the hooks of a linked worktree, and `HUSKY=0` does not switch the lock off. Both fail closed: a crashed checker, a missing object, or no `node` on the PATH refuses the update or the push. They pick the guarded updates with shell builtins and git alone, so without Node a feature branch still commits and pushes.
+
+A single command can skip a check with `git -c hook.spec-lock-reference-transaction.enabled=false <command>`, or `git -c hook.spec-lock-pre-push.enabled=false push ...` for a push; `git push --no-verify` also skips the push check. These escapes are for the repository owner only; agents never use them.
+
+`node test/time-check.mjs <repository> <old> <new> [samples]` times `spec-lock check` and the adapter on a real repository without changing it.
 
 ## On GitHub
 

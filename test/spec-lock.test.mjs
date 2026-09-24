@@ -1,14 +1,14 @@
 // Fixture tests for spec-lock. Every repository is synthetic, built in a temp directory, with a
 // scratch global git config; nothing touches the real global config or a real repository.
 // Run: node --test test/
-import { test } from 'node:test'
+import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync, mkdirSync, cpSync, renameSync, symlinkSync, rmSync, readFileSync, realpathSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdtempSync, writeFileSync, mkdirSync, cpSync, renameSync, symlinkSync, rmSync, readFileSync, realpathSync, chmodSync } from 'node:fs'
+import { tmpdir, loadavg } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { register, HOOK } from '../lib/lock.mjs'
+import { register, HOOK, PUSH_HOOK } from '../lib/lock.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CLI = join(ROOT, 'bin', 'spec-lock')
@@ -23,10 +23,15 @@ function specText(ids, { struck = [], omit } = {}) {
 }
 const proofText = (spec, ids) => `---\n${spec ? `spec: ${spec}\n` : 'title: no spec here\n'}---\n# Proof\n\nWalked ${ids.join(' and ')}.\n`
 
+// Every scratch directory is removed once the tests finish, pass or fail.
+const scratchDirs = []
+after(() => { for (const dir of scratchDirs) rmSync(dir, { recursive: true, force: true }) })
+
 // A scratch directory with its own global git config, central spec-lock config, landing log and HOME.
 // scratch() works in its "repo" directory; s.at(name) gives the same helpers for another directory.
 function scratch() {
   const dir = mkdtempSync(join(tmpdir(), 'spec-lock-test-'))
+  scratchDirs.push(dir)
   const config = join(dir, 'global.gitconfig')
   writeFileSync(config, '')
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(GIT_|FM_|SPEC_LOCK_)/.test(k)))
@@ -46,7 +51,7 @@ function scratch() {
       git: (...args) => run('git', args),
       gitEnv: (extra, ...args) => run('git', args, extra),
       // The owner's one-shot escape, used only to build fixtures such as a remote's history.
-      unhooked: (...args) => s.ok('-c', `hook.${HOOK}.enabled=false`, ...args),
+      unhooked: (...args) => s.ok('-c', `hook.${HOOK}.enabled=false`, '-c', `hook.${PUSH_HOOK}.enabled=false`, ...args),
       ok(...args) { const r = s.git(...args); assert.equal(r.code, 0, `git ${args.join(' ')}: ${r.err}`); return r.out.trim() },
       rev: (ref) => s.ok('rev-parse', ref),
       check: (old, neu) => run('node', [CLI, 'check', old, neu]),
@@ -265,7 +270,7 @@ test('AC5: a pull of commits already on the remote default branch lands without 
     up.write(files)
     up.ok('add', '-A')
     up.unhooked('commit', '-q', '-m', msg)
-    up.ok('push', '-q', 'origin', 'main')
+    up.unhooked('push', '-q', 'origin', 'main')
     return up.rev('HEAD')
   }
   const r = remoteWork({ ...code, 'docs/proof/old.md': proofText(null, ['AC1']) }, 'feat: remote work')
@@ -635,4 +640,196 @@ const canary = process.env.SPEC_LOCK_CANARY
 test('AC14 and AC21: GitHub refuses an unproved push to main and a forced one, lands a proved one, and each check takes under 60 seconds', { skip: !canary && 'set SPEC_LOCK_CANARY=<owner/repo> to walk a real GitHub repository' }, () => {
   const r = spawnSync('node', [join(ROOT, 'test', 'github-walk.mjs'), canary], { encoding: 'utf8', timeout: 1200000 })
   assert.equal(r.status, 0, r.stdout + r.stderr)
+})
+
+// The two events the shared hooks use; every fixture layout has its own hook for each.
+const EVENTS = ['reference-transaction', 'pre-push']
+// A repository's own hook: it appends "<directory> <event> <first argument>" to a marker file.
+const markHook = (marker) => `#!/bin/sh\necho "$(pwd -P) $(basename "$0") $1" >> '${marker}'\n`
+// Husky 9's dispatcher, cut down: .husky/_/<event> sources h, which runs .husky/<event> unless HUSKY=0.
+const HUSKY_H = '#!/usr/bin/env sh\nn=$(basename "$0")\ns=$(dirname "$(dirname "$0")")/$n\n[ ! -f "$s" ] && exit 0\n[ "${HUSKY-}" = "0" ] && exit 0\nsh -e "$s" "$@"\n'
+const hooksAt = (dir, text) => Object.fromEntries(EVENTS.map((e) => [`${dir}/${e}`, text]))
+
+test('AC9: the shared hooks run beside husky, tracked, absolute and default hook folders and in a linked worktree, and change none of their config', () => {
+  const s = scratch()
+  const marker = join(s.dir, 'marker')
+  const mark = markHook(marker)
+  const layouts = {
+    husky: { hooksPath: () => '.husky/_', files: { '.husky/_/h': HUSKY_H, ...hooksAt('.husky/_', '#!/usr/bin/env sh\n. "$(dirname "$0")/h"\n'), ...hooksAt('.husky', mark) } },
+    tracked: { hooksPath: () => '.githooks', files: hooksAt('.githooks', mark) },
+    absolute: { hooksPath: (repo) => join(repo, '.git', 'hooks'), files: hooksAt('.git/hooks', mark) },
+    default: { files: hooksAt('.git/hooks', mark) },
+    // A linked worktree of a repository with a tracked, relative hooks folder, used only from the worktree.
+    worktree: { hooksPath: () => '.githooks', files: hooksAt('.githooks', mark), worktree: true },
+  }
+  const proved = { ...code, [SPEC]: specText(['AC1']), 'docs/proof/x.md': proofText(SPEC, ['AC1']) }
+  const cases = Object.entries(layouts).map(([name, { hooksPath, files, worktree }]) => {
+    const h = s.at(name)
+    mkdirSync(h.repo)
+    h.ok('init', '-q', '-b', 'main')
+    h.write(files)
+    for (const path of Object.keys(files)) chmodSync(join(h.repo, path), 0o755)
+    if (hooksPath) h.ok('config', 'core.hooksPath', hooksPath(h.repo))
+    const a = h.commit({ 'base.txt': 'base\n' }, 'test: seed main')
+    // Each has its own bare remote standing in for GitHub, with the lock off there.
+    const remote = s.at(`${name}.git`)
+    mkdirSync(remote.repo)
+    remote.ok('init', '-q', '--bare', '-b', 'main')
+    remote.ok('config', `hook.${HOOK}.enabled`, 'false')
+    h.ok('remote', 'add', 'origin', remote.repo)
+    h.ok('push', '-q', 'origin', 'main')
+    const good = h.branch('good', proved)
+    const bad = h.branch('bad', code)
+    if (worktree) h.ok('worktree', 'add', '-q', join(s.dir, `${name}-wt`), '-b', 'wt')
+    const w = worktree ? s.at(`${name}-wt`) : h
+    return { name, h, w, remote, a, good, bad, before: w.ok('config', '--list', '--show-scope').split('\n') }
+  })
+
+  register(s.config)
+  const failures = []
+  const fail = (c, what) => failures.push(`${c.name}: ${what}`)
+  const marks = () => { try { return readFileSync(marker, 'utf8') } catch { return '' } }
+  for (const c of cases) {
+    const { h, w, remote, a, good, bad } = c
+    const dir = realpathSync(w.repo)
+    // Config: only the four global entries of the shared hooks are new, and nothing was removed.
+    const after = w.ok('config', '--list', '--show-scope').split('\n')
+    const added = after.filter((l) => !c.before.includes(l))
+    const removed = c.before.filter((l) => !after.includes(l))
+    if (removed.length || added.length !== 4 || !added.every((l) => l.startsWith('global\thook.spec-lock-'))) fail(c, `config changed: +${JSON.stringify(added)} -${JSON.stringify(removed)}`)
+    // Git lists the shared hook and the repository's own hook for both events.
+    for (const [event, name] of [['reference-transaction', HOOK], ['pre-push', PUSH_HOOK]]) {
+      const list = w.ok('hook', 'list', event).split('\n')
+      if (!list.includes(name) || !list.includes('hook from hookdir')) fail(c, `git hook list ${event}: ${list.join(', ')}`)
+    }
+
+    writeFileSync(marker, '')
+    const refused = w.git('update-ref', 'refs/heads/main', bad, a)
+    if (refused.code === 0 || h.rev('main') !== a || !/spec-lock: refused refs\/heads\/main/.test(refused.err)) fail(c, `unproved update: exit ${refused.code} ${refused.err}`)
+    if (!marks().includes(`${dir} reference-transaction prepared`)) fail(c, `own reference-transaction hook did not run on the refused update: ${marks()}`)
+
+    writeFileSync(marker, '')
+    const landed = w.git('update-ref', 'refs/heads/main', good, a)
+    if (landed.code !== 0 || h.rev('main') !== good) fail(c, `proved update: exit ${landed.code} ${landed.err}`)
+    if (!marks().includes(`${dir} reference-transaction committed`)) fail(c, `own reference-transaction hook did not run on the landing: ${marks()}`)
+    if (!s.landings().some(([, repo, ref, old, neu, verdict]) => repo === realpathSync(h.repo) && ref === 'refs/heads/main' && old === a && neu === good && verdict === 'allowed')) fail(c, 'the shared hook did not judge the landing')
+
+    writeFileSync(marker, '')
+    const pushRefused = w.git('push', '-q', 'origin', 'bad:main')
+    if (pushRefused.code === 0 || remote.rev('main') !== a || !/spec-lock: refused push to origin refs\/heads\/main/.test(pushRefused.err)) fail(c, `unproved push: exit ${pushRefused.code} ${pushRefused.err}`)
+    if (!marks().includes(`${dir} pre-push origin`)) fail(c, `own pre-push hook did not run on the refused push: ${marks()}`)
+
+    writeFileSync(marker, '')
+    const pushed = w.git('push', '-q', 'origin', 'good:main')
+    if (pushed.code !== 0 || remote.rev('main') !== good) fail(c, `proved push: exit ${pushed.code} ${pushed.err}`)
+    if (!marks().includes(`${dir} pre-push origin`)) fail(c, `own pre-push hook did not run on the push: ${marks()}`)
+  }
+  assert.deepEqual(failures, [])
+
+  // HUSKY=0 switches off husky's hooks, not the lock.
+  const husky = cases[0]
+  const worse = husky.h.branch('worse', { 'code.js': 'export const answer = 43\n' })
+  writeFileSync(marker, '')
+  const off = husky.h.gitEnv({ HUSKY: '0' }, 'update-ref', 'refs/heads/main', worse, husky.good)
+  assert.notEqual(off.code, 0, 'HUSKY=0 switched off the lock')
+  assert.match(off.err, /spec-lock: refused refs\/heads\/main/)
+  assert.equal(marks(), '')
+})
+
+test('AC10: a push to a guarded remote branch is judged from the tip the remote advertised to the pushed commit, force pushes and other refspecs included', () => {
+  const s = scratch()
+  const a = s.init()
+  // The bare remote stands in for GitHub: its own lock is off, so only the pre-push adapter judges.
+  const remote = s.at('remote.git')
+  mkdirSync(remote.repo)
+  remote.ok('init', '-q', '--bare', '-b', 'main')
+  remote.ok('config', `hook.${HOOK}.enabled`, 'false')
+  s.ok('remote', 'add', 'origin', remote.repo)
+  // The repository's own pre-push hook keeps the ref lines git hands the hooks, in order.
+  const pushedFile = join(s.dir, 'pushed')
+  s.write({ '.git/hooks/pre-push': `#!/bin/sh\ncat > '${pushedFile}'\n` })
+  chmodSync(join(s.repo, '.git/hooks/pre-push'), 0o755)
+
+  // A new remote branch holding what local main holds passes.
+  const created = s.git('push', '-q', 'origin', 'main')
+  assert.equal(created.code, 0, created.err)
+  const proved = (name) => ({ [SPEC]: specText(['AC1']), [`docs/proof/${name}.md`]: proofText(SPEC, ['AC1']), [`${name}.js`]: 'export {}\n' })
+  const r = s.branch('landed', proved('landed'))
+  const ff = s.git('push', '-q', 'origin', 'landed:main')
+  assert.equal(ff.code, 0, ff.err)
+  assert.equal(remote.rev('main'), r)
+  s.ok('merge', '-q', '--ff-only', 'landed')
+
+  const b = s.branch('feature', code)
+  // A free remote branch takes unproved code. Its name sorts before main, and git hands the hooks a
+  // remote's existing refs in name order, so a later push of both lists main second.
+  const aside = s.branch('aside', { 'aside.js': 'export {}\n' })
+  const free = s.git('push', '-q', 'origin', 'aside')
+  assert.equal(free.code, 0, free.err)
+  assert.equal(remote.rev('aside'), aside)
+  s.ok('switch', '-q', 'aside')
+  s.commit({ 'aside.js': 'export const more = 1\n' })
+  // Siblings of R: a push of either drops R from the remote main, so only a force push sends them.
+  s.ok('switch', '-q', '-c', 'sibling', a)
+  s.commit({ 'code.js': 'export const answer = 7\n' })
+  s.ok('switch', '-q', '-c', 'proved-sibling', a)
+  const e = s.commit(proved('sibling'))
+  s.ok('switch', '-q', 'main')
+  // The owner's escape moved local main to unproved code, past the local lock.
+  s.unhooked('update-ref', 'refs/heads/main', b, r)
+
+  const cases = {
+    'main, moved past the local lock': ['main'],
+    'feature to main': ['feature:main'],
+    'force push of a tip that is not a descendant': ['--force', 'sibling:main'],
+    'forced refspec of a tip that is not a descendant': ['+sibling:main'],
+    // master is guarded and the remote has none, so the whole tree is new but for what local main holds.
+    'a guarded branch new to the remote': ['sibling:master'],
+    'two refs, main second': ['aside', 'feature:main'],
+  }
+  const allowed = []
+  for (const [name, args] of Object.entries(cases)) {
+    const p = s.git('push', '-q', 'origin', ...args)
+    const ref = args.at(-1).endsWith(':master') ? 'refs/heads/master' : 'refs/heads/main'
+    if (p.code === 0 || remote.rev('main') !== r || !new RegExp(`spec-lock: refused push to origin ${ref} \\S+\\.\\.[0-9a-f]{12}\n- no proof`).test(p.err)) allowed.push(`${name}: exit ${p.code}, remote main ${remote.rev('main') === r ? 'at R' : 'moved'}: ${p.err}`)
+  }
+  assert.deepEqual(allowed, [])
+  assert.equal(remote.git('rev-parse', '--verify', '--quiet', 'refs/heads/master').code, 1)
+  // Git handed the hooks the free branch first and main second, and the refused push sent neither.
+  assert.deepEqual(readFileSync(pushedFile, 'utf8').split('\n').filter(Boolean).map((l) => l.split(' ')[2]), ['refs/heads/aside', 'refs/heads/main'])
+  assert.equal(remote.rev('aside'), aside)
+
+  // A proved tip that is not a descendant force-pushes.
+  const forced = s.git('push', '-q', '--force', 'origin', 'proved-sibling:main')
+  assert.equal(forced.code, 0, forced.err)
+  assert.equal(remote.rev('main'), e)
+})
+
+test('AC20: the lock adds less than a second to a local landing, valid or refused', (t) => {
+  const s = scratch()
+  const a = s.init()
+  const ranges = {
+    valid: s.branch('valid', { ...code, [SPEC]: specText(['AC1', 'AC2']), 'docs/proof/x.md': proofText(SPEC, ['AC1', 'AC2']) }),
+    invalid: s.branch('invalid', code),
+  }
+  const timed = (fn) => { const t0 = process.hrtime.bigint(); const r = fn(); return [Number(process.hrtime.bigint() - t0) / 1e6, r] }
+  const median = (xs) => xs.sort((x, y) => x - y)[xs.length >> 1]
+  const slow = []
+  for (const [name, tip] of Object.entries(ranges)) {
+    const on = []
+    const off = []
+    for (let i = 0; i < 3; i++) {
+      const [locked, r] = timed(() => s.git('update-ref', 'refs/heads/main', tip, a))
+      assert.equal(r.code === 0, name === 'valid', `${name} range: exit ${r.code} ${r.err}`)
+      s.unhooked('update-ref', 'refs/heads/main', a)
+      const [unlocked] = timed(() => s.unhooked('update-ref', 'refs/heads/main', tip, a))
+      s.unhooked('update-ref', 'refs/heads/main', a)
+      on.push(locked)
+      off.push(unlocked)
+    }
+    const added = median(on) - median(off)
+    t.diagnostic(`${name}: with the lock ${on.map(Math.round).join(', ')} ms, without ${off.map(Math.round).join(', ')} ms, median added ${Math.round(added)} ms, load ${loadavg()[0].toFixed(1)}`)
+    if (added >= 1000) slow.push(`${name}: added ${Math.round(added)} ms`)
+  }
+  assert.deepEqual(slow, [])
 })

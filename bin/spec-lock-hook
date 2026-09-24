@@ -1,8 +1,9 @@
 #!/bin/sh
 # Git hook adapter for spec-lock. Git runs it as: spec-lock-hook <event> <hook args...>
-# It decides which updates are checked: the guarded branches of a repository that is not on the
-# opt-out list. Everything else passes untouched, with or without Node. It uses only shell builtins
-# and git, because git may run it with a PATH that holds neither Node nor the usual tools.
+# The events are reference-transaction, for local branch moves, and pre-push, for the remote branch
+# a push would move. It decides which updates are checked: the guarded branches of a repository that
+# is not on the opt-out list. Everything else passes untouched, with or without Node. It uses only
+# shell builtins and git, because git may run it with a PATH that holds neither Node nor the usual tools.
 # It fails closed: a missing Node, a crashed checker or an unreadable object refuses a guarded update.
 set -f
 event=$1
@@ -11,6 +12,9 @@ case $event in
 reference-transaction)
   # prepared can still stop an update; committed keeps the tip a landing left behind.
   case $1 in prepared|committed) state=$1 ;; *) exit 0 ;; esac ;;
+pre-push)
+  # Git passes the remote's name and URL; a refusal stops the whole push, as in prepared.
+  state=prepared ;;
 *)
   echo "spec-lock: unknown hook event '$event', refusing" >&2
   exit 1 ;;
@@ -38,8 +42,12 @@ updates=
 IFS='
 '
 for line in $input; do
+  # reference-transaction lines are "<old> <new> <ref>"; pre-push lines are
+  # "<local ref> <local oid> <remote ref> <remote oid>", and the remote ref is what a push moves.
+  ref=${line##* }
+  [ "$event" = pre-push ] && ref=${line#* * } && ref=${ref%% *}
   for name in $guarded; do
-    [ "${line##* }" = "refs/heads/$name" ] && updates="$updates$line
+    [ "$ref" = "refs/heads/$name" ] && updates="$updates$line
 " && break
   done
 done
@@ -61,7 +69,8 @@ if ! command -v node >/dev/null 2>&1; then
   echo "spec-lock: node is not on PATH, so this update of a guarded branch cannot be checked and is refused. Put node on the PATH this git runs with." >&2
   exit 1
 fi
-printf '%s' "$updates" | node "${0%/*}/spec-lock" "$event" "$state" "$repo" $guarded
+# The first hook argument is the state for reference-transaction and the remote for pre-push.
+printf '%s' "$updates" | node "${0%/*}/spec-lock" "$event" "$1" "$repo" $guarded
 status=$?
 [ "$state" = committed ] && exit 0
 [ "$status" -le 1 ] && exit "$status"
