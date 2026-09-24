@@ -1083,6 +1083,9 @@ test('AC15 and AC16: enrollment writes the checker workflow, then one ruleset pe
 test('AC15: enrollment refuses, and changes nothing, where public actions or rulesets are not available or a guarded workflow would change', () => {
   const s = scratch()
   mkdirSync(s.repo)
+  // With an identity set, an enrollment that missed a problem would go on to write.
+  s.ok('config', '--global', 'user.name', 'Fixture')
+  s.ok('config', '--global', 'user.email', 'fixture@example.invalid')
   const sha = 'b'.repeat(40)
   const base = {
     'GET repos/o/r': { default_branch: 'main', visibility: 'private', archived: false, owner: { login: 'o', type: 'Organization' }, permissions: { admin: true } },
