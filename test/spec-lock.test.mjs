@@ -957,6 +957,19 @@ test('pulled commits: doctor reports a remote-tracking tip its remote does not h
   s.ok('fetch', '-q', 'origin')
   assert.equal(s.rev('origin/main'), a)
   assert.equal(s.rollout(['doctor', s.repo]).code, 0)
+
+  // When the remote moves on, the old tip cannot be confirmed until its new tip is fetched.
+  const up = s.at('upstream')
+  s.ok('clone', '-q', remote.repo, up.repo)
+  up.write({ 'more.txt': 'more\n' })
+  up.ok('add', '-A')
+  up.unhooked('commit', '-q', '-m', 'test: remote work')
+  up.unhooked('push', '-q', 'origin', 'main')
+  const stale = s.rollout(['doctor', s.repo])
+  assert.equal(stale.code, 1, stale.out)
+  assert.ok(stale.out.includes(`origin is at ${up.rev('HEAD')}, which is not fetched here, so origin/HEAD at ${a} cannot be confirmed`), stale.out)
+  s.ok('fetch', '-q', 'origin')
+  assert.equal(s.rollout(['doctor', s.repo]).code, 0)
 })
 
 // A stand-in for the gh CLI: answers "gh api --method M path" from a table keyed "M path" and logs
