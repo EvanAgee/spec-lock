@@ -3,9 +3,11 @@
 This file is the project's committed home for project-intrinsic agent knowledge: build, test, release, architecture, and sharp-edge notes that should travel with the code.
 
 - This repository is public. Never commit private repository names, host paths, other projects' spec or proof bodies, or internal run state. Test fixtures are synthetic repositories built in a temp directory.
-- Tests: `npm test` (Node 22 `node:test`, no dependencies). Every test and manual walk uses a scratch `GIT_CONFIG_GLOBAL` with `GIT_CONFIG_NOSYSTEM=1` and strips inherited `GIT_*` and `FM_*` variables; never register the hook in a real global config or repository.
+- Tests: `npm test` (Node 22 `node:test`, no dependencies). Every test and manual walk uses a scratch `GIT_CONFIG_GLOBAL` with `GIT_CONFIG_NOSYSTEM=1`, strips inherited `GIT_*`, `FM_*` and `SPEC_LOCK_*` variables, and points `HOME`, `SPEC_LOCK_CONFIG` and `SPEC_LOCK_LOG` into the temp directory; never register the hook in a real global config or repository, and never write the real central file or landing log.
 - The hook's friendly name `spec-lock-reference-transaction` is a contract: the owner's one-shot escape is `git -c hook.spec-lock-reference-transaction.enabled=false <command>`. Renaming it breaks that escape.
-- `git pack-refs` (and so `git gc`) sends a delete of `refs/heads/main` through the reference-transaction hook after packing it, so refusing every deletion of a protected branch would break gc.
+- `git pack-refs` (and so `git gc`) sends a delete of `refs/heads/main` through the reference-transaction hook after packing it, so refusing every deletion of a protected branch would break gc. Deleting a ref that is both packed and loose runs a nested transaction whose `committed` call comes while the loose ref still stands; `committed` in `lib/lock.mjs` settles only moves that have happened.
+- `bin/spec-lock-hook` uses only shell builtins and git: git may run it with a PATH that has no Node and no `sed` or `grep`, and a missing tool must not read as "nothing guarded".
+- Write refs from the hook only in the `committed` state. Under the reftable backend a nested `git update-ref` in `prepared` fails with "cannot lock references". Every git command the hook runs re-enters the hook, so refs it writes must stay outside the guarded set (`refs/spec-lock/`).
 
 ## Maintaining this file
 

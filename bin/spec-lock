@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // spec-lock check <old> <new>        exit 0 when moving a protected branch from old to new may land
-// spec-lock reference-transaction    the git hook adapter; reads "<old> <new> <ref>" lines on stdin
+// spec-lock reference-transaction <state> <repo> [guarded branch...]
+//                                    the git hook adapter; reads "<old> <new> <ref>" lines on stdin
 // Exit 1 is a refusal with its reasons; exit 2 means the check could not run, which also refuses.
 import { readFileSync } from 'node:fs'
 import { checkRange, referenceTransaction } from '../lib/lock.mjs'
@@ -14,14 +15,15 @@ try {
       process.exit(1)
     }
     process.stdout.write('spec-lock: ok\n')
-  } else if (cmd === 'reference-transaction') {
-    const out = referenceTransaction(readFileSync(0, 'utf8'))
+  } else if (cmd === 'reference-transaction' && args.length >= 2) {
+    const [state, repo, ...guarded] = args
+    const out = referenceTransaction(state, readFileSync(0, 'utf8'), repo, guarded)
     if (out.length) {
       process.stderr.write(out.join('\n') + '\n')
       process.exit(1)
     }
   } else {
-    process.stderr.write('usage: spec-lock check <old> <new>\n       spec-lock reference-transaction < updates\n')
+    process.stderr.write('usage: spec-lock check <old> <new>\n       spec-lock reference-transaction <state> <repo> [guarded branch...] < updates\n')
     process.exit(2)
   }
 } catch (e) {

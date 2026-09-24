@@ -1,28 +1,69 @@
 #!/bin/sh
 # Git hook adapter for spec-lock. Git runs it as: spec-lock-hook <event> <hook args...>
-# It fails closed: a missing Node, a crashed checker or an unreadable object refuses the update.
+# It decides which updates are checked: the guarded branches of a repository that is not on the
+# opt-out list. Everything else passes untouched, with or without Node. It uses only shell builtins
+# and git, because git may run it with a PATH that holds neither Node nor the usual tools.
+# It fails closed: a missing Node, a crashed checker or an unreadable object refuses a guarded update.
+set -f
 event=$1
 shift
 case $event in
 reference-transaction)
-  # Only the prepared state can still stop an update.
-  [ "$1" = prepared ] || exit 0 ;;
+  # prepared can still stop an update; committed keeps the tip a landing left behind.
+  case $1 in prepared|committed) state=$1 ;; *) exit 0 ;; esac ;;
 *)
   echo "spec-lock: unknown hook event '$event', refusing" >&2
   exit 1 ;;
 esac
-input=$(cat)
-if ! command -v node >/dev/null 2>&1; then
-  # Without Node the policy cannot tell which branch is protected, so every local branch is refused.
-  case $input in
-  *" refs/heads/"*)
-    echo "spec-lock: node is not on PATH, so this branch update cannot be checked and is refused. Put node on the PATH this git runs with." >&2
-    exit 1 ;;
-  esac
+# Git runs this for every ref, HEAD included, even while git init is still building the repository,
+# so nothing else runs until a branch is in the update.
+input=
+while read -r line; do input="$input$line
+"; done
+case $input in *" refs/heads/"*) ;; *) exit 0 ;; esac
+
+# The owner's central file: "integration <branch>" and "opt-out <absolute repository path>" lines.
+config=${SPEC_LOCK_CONFIG:-$HOME/.config/spec-lock/config}
+listed() {
+  [ -r "$config" ] || return 0
+  while read -r key value; do [ "$key" = "$1" ] && printf '%s\n' "$value"; done < "$config"
+}
+
+# Guarded: every remote's default branch, main and master, and the listed integration branches.
+guarded="main
+master
+$(git for-each-ref --format='%(symref:lstrip=3)' 'refs/remotes/*/HEAD')
+$(listed integration)"
+updates=
+IFS='
+'
+for line in $input; do
+  for name in $guarded; do
+    [ "${line##* }" = "refs/heads/$name" ] && updates="$updates$line
+" && break
+  done
+done
+unset IFS
+[ -n "$updates" ] || exit 0
+
+# The repository: its main worktree, or the repository itself when bare, so linked worktrees match too.
+repo=$(git rev-parse --path-format=absolute --git-common-dir) && repo=$(cd "${repo%/.git}" && pwd -P) || exit 1
+listed opt-out | while read -r dir; do
+  case $dir in /*) [ "$(cd "$dir" 2>/dev/null && pwd -P)" = "$repo" ] && exit 3 ;; esac
+done
+if [ $? = 3 ]; then
+  [ "$state" = prepared ] && echo "spec-lock: not checked: $repo is on the opt-out list in $config" >&2
   exit 0
 fi
-printf '%s\n' "$input" | node "$(dirname "$0")/spec-lock" "$event"
+
+if ! command -v node >/dev/null 2>&1; then
+  [ "$state" = committed ] && exit 0
+  echo "spec-lock: node is not on PATH, so this update of a guarded branch cannot be checked and is refused. Put node on the PATH this git runs with." >&2
+  exit 1
+fi
+printf '%s' "$updates" | node "${0%/*}/spec-lock" "$event" "$state" "$repo" $guarded
 status=$?
+[ "$state" = committed ] && exit 0
 [ "$status" -le 1 ] && exit "$status"
 echo "spec-lock: the checker failed (exit $status), so the update is refused." >&2
 exit 1
