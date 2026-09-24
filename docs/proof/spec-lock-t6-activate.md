@@ -3,7 +3,7 @@ spec: docs/specs/spec-lock-t6-activate.md
 tags: [spec-lock, rollout, activation, enrollment, github]
 date: 2026-09-24
 issue: spec-lock-t6-activate
-walked: e18afd4a31e54ee0e5b5e06b015b9bf029d40ce1
+walked: ef80acc113d68a3baf2ce94eaf43b8530eb4d6b8
 ---
 
 # Proof: switch-on and enrollment
@@ -12,7 +12,9 @@ This branch adds `bin/spec-lock-rollout`. Its `activate` command installs the gl
 
 The switch-on itself is not in this proof. Nothing on this machine's real git config, central file or landing log changed. No GitHub repository changed except the throwaway canary https://github.com/EvanAgee/spec-lock-canary. The owner does the real activation and the enrollment of real repositories. The parts of each criterion that need them are marked **pending switch-on** below.
 
-Environment: git 2.54.0 (Apple Git-157) and Node v22.22.0 on macOS; the GitHub runner printed the same checker line as the local checker, `spec-lock checker 0.0.0+0fe5fbda58ae`.
+The branch is rebased onto main at 56ba45a, which added the evidence binding check. The walked commit is ef80acc, and the canary's workflow is pinned to it. Walks run before the rebase used the pin 2856d69. Its `test/github-walk.mjs` is the walked commit's. Its `bin/spec-lock-rollout` differs only in doctor's stale-tip message and a one-line error for a missing rollout file. Those walks are marked as such.
+
+Environment: git 2.54.0 (Apple Git-157) and Node v22.22.0 on macOS; git 2.55.0 on the GitHub runner. At the walked commit the runner and the local checker print the same line, `spec-lock checker 0.0.0+dfc485bcacbc`.
 
 ## Criteria and evidence
 
@@ -47,23 +49,23 @@ not ok 5 - AC15: enrollment refuses ...
 
 ### Green
 
-`SPEC_LOCK_CANARY=EvanAgee/spec-lock-canary npm test` at the walked commit, exit 0:
+`SPEC_LOCK_CANARY=EvanAgee/spec-lock-canary npm test` at the walked commit, exit 0. The suite includes main's `test/evidence.test.mjs`:
 
 ```text
-ok 14 - AC14, AC15 and AC21: an enrolled GitHub repository refuses unproved pushes to its default and integration branches and a forced one, lands proved ones, and each check takes under 60 seconds
-ok 18 - AC19: activation waits until every in-flight lane has landed, records the drained lanes and baselines, and gives an old-style proof no grace
-ok 19 - repository settings: SPEC_LOCK_CONFIG no longer opts a repository out, and each repository-level override of the hooks is found and stops activation
-ok 20 - pulled commits: doctor reports a remote-tracking tip its remote does not have, which the pull rule would trust, until a fetch replaces it
-ok 21 - AC15 and AC16: enrollment writes the checker workflow, then one ruleset per protected branch that requires its own check from GitHub Actions, blocks force pushes and deletion, and has no bypass
-ok 22 - AC15: enrollment refuses, and changes nothing, where public actions or rulesets are not available or a guarded workflow would change
-# pass 22
+ok 18 - AC14, AC15 and AC21: an enrolled GitHub repository refuses unproved pushes to its default and integration branches and a forced one, lands proved ones, and each check takes under 60 seconds
+ok 22 - AC19: activation waits until every in-flight lane has landed, records the drained lanes and baselines, and gives an old-style proof no grace
+ok 23 - repository settings: SPEC_LOCK_CONFIG no longer opts a repository out, and each repository-level override of the hooks is found and stops activation
+ok 24 - pulled commits: doctor reports a remote-tracking tip its remote does not have, which the pull rule would trust, until a fetch replaces it
+ok 25 - AC15 and AC16: enrollment writes the checker workflow, then one ruleset per protected branch that requires its own check from GitHub Actions, blocks force pushes and deletion, and has no bypass
+ok 26 - AC15: enrollment refuses, and changes nothing, where public actions or rulesets are not available or a guarded workflow would change
+# pass 26
 # fail 0
 # skipped 0
 ```
 
 ### Mutation controls
 
-Each mutant ran on a throwaway copy of the worktree at the walked commit. A first round of M10 showed the refusal test had no git identity, so a missed refusal stopped before writing for the wrong reason. e18afd4 gives it one, and the round below ran after that. The runner refuses a replacement whose text does not occur exactly once, and it restores each file by copying it back from the worktree. The unmutated copy passed the same tests first.
+Each mutant ran on a throwaway copy of the worktree at the walked commit. An earlier round of M10 showed the refusal test had no git identity, so a missed refusal stopped before writing for the wrong reason. Commit 69f24c6 gives it one, and the round below ran after that. The runner refuses a replacement whose text does not occur exactly once, and it restores each file by copying it back from the worktree. The unmutated copy passed the same tests first.
 
 | Mutant | Test that failed | Failure |
 |---|---|---|
@@ -85,24 +87,23 @@ Each mutant ran on a throwaway copy of the worktree at the walked commit. A firs
 ### The canary as a new repository (AC16) and an enrolled one (AC15)
 
 1. Before: the canary's main was 3c9d6c8, guarded by one ruleset (23948916, `spec-lock on main`) that required `spec-lock` and allowed force pushes. I pushed 3c9d6c8 to `archive/t5-main`, deleted that ruleset, and force-pushed a new root commit c03a245 holding only a README to `main` and to a new `integration/candidate`. That is the state `gh repo create --add-readme` leaves.
-2. `spec-lock-rollout enroll EvanAgee/spec-lock-canary --integration integration/candidate --action 2856d69...` printed a plan with no problems: two workflow writes and two new rulesets.
-3. With `--apply` it wrote `.github/workflows/spec-lock.yml` to `main` (342c4c9) and to `integration/candidate` (3c2a43f), each authored by the local git identity. It then created ruleset 23951818 `spec-lock` on `~DEFAULT_BRANCH` and 23951820 `spec-lock integration/candidate` on `refs/heads/integration/candidate`. Reading `rules/branches/<branch>` back showed `deletion`, `non_fast_forward` and `required_status_checks` with `{"context":"spec-lock","integration_id":15368}` on main and `{"context":"spec-lock integration/candidate","integration_id":15368}` on the integration branch.
-4. `node test/github-walk.mjs EvanAgee/spec-lock-canary --integration integration/candidate`, exit 0:
+2. Before the rebase, `spec-lock-rollout enroll EvanAgee/spec-lock-canary --integration integration/candidate --action 2856d69...` printed a plan with no problems: two workflow writes and two new rulesets. `--apply` wrote the workflow to both branches (342c4c9, 3c2a43f), each authored by the local git identity, and created two rulesets. The walk that followed matched the final one below: bad refused on both branches, good landed, forced refused, jobs 5 to 6 s.
+3. Mutation on GitHub, before the rebase: I replaced main's ruleset rules with `deletion` and `non_fast_forward` only, and deleted the integration ruleset. The same walk exited 1 with `GitHub accepted the unproved push to main` and `GitHub accepted the unproved push to integration/candidate`. Unproved 0fe41bd and f0b2708 landed although their checks failed ([run](https://github.com/EvanAgee/spec-lock-canary/actions/runs/36033907139), [run](https://github.com/EvanAgee/spec-lock-canary/actions/runs/36033991312)). The force push was still refused, by the force-push rule alone. `enroll ... --apply` again restored both rulesets without writing the workflow.
+4. Before the rebase, at 35aa16d: `enroll` with its default pin (that commit, not the canary's) exited 1 with `required_status_checks on main would refuse a direct write of .github/workflows/spec-lock.yml; land it there through the repository's usual flow, then enroll again`, and the same for the integration branch. Nothing was written.
+5. After the rebase, 2856d69 was on no branch, so I re-pinned the canary to the walked commit. I deleted both rulesets and ran `spec-lock-rollout enroll EvanAgee/spec-lock-canary --integration integration/candidate --apply`, whose default pin is the walked commit. It wrote the workflow to `main` (0f8c0c2) and `integration/candidate` (3cb46c2), created ruleset 23953303 `spec-lock` on `~DEFAULT_BRANCH` and 23953304 `spec-lock integration/candidate` on `refs/heads/integration/candidate`, and read back `deletion, non_fast_forward, required_status_checks[{"context":"spec-lock","integration_id":15368}]` on main and the same with `spec-lock integration/candidate` on the integration branch.
+6. `node test/github-walk.mjs EvanAgee/spec-lock-canary --integration integration/candidate`, exit 0:
 
 | Candidate | Check | Job | Push | Branch after |
 |---|---|---|---|---|
-| unproved code on main, e0bf6cb | failure, [run](https://github.com/EvanAgee/spec-lock-canary/actions/runs/36033708635) | 5 s, queued 2 s | refused: `Required status check "spec-lock" is failing.` | 342c4c9, unchanged |
-| the same plus spec and proof, d43cb37 | success, [run](https://github.com/EvanAgee/spec-lock-canary/actions/runs/36033738212) | 6 s | exit 0 | d43cb37 |
-| unproved code on the integration branch, d8f1846 | failure, [run](https://github.com/EvanAgee/spec-lock-canary/actions/runs/36033781112) | 6 s, queued 3 s | refused: `Required status check "spec-lock integration/candidate" is failing.` | 3c2a43f, unchanged |
-| the same plus spec and proof, 5e90e4d | success, [run](https://github.com/EvanAgee/spec-lock-canary/actions/runs/36033812165) | 6 s | exit 0 | 5e90e4d |
-| unproved code off main's parent, forced, 37c07e2 | failure, [run](https://github.com/EvanAgee/spec-lock-canary/actions/runs/36033845953) | 6 s | refused: `Cannot force-push to this branch` and `Required status check "spec-lock" is failing.` | d43cb37, unchanged |
+| unproved code on main, a13ff21 | failure, [run](https://github.com/EvanAgee/spec-lock-canary/actions/runs/36037973176) | 7 s, queued 4 s | refused: `Required status check "spec-lock" is failing.` | 0f8c0c2, unchanged |
+| the same plus spec and proof, 439dea8 | success, [run](https://github.com/EvanAgee/spec-lock-canary/actions/runs/36038012464) | 5 s, queued 2 s | exit 0 | 439dea8 |
+| unproved code on the integration branch, fa55f63 | failure, [run](https://github.com/EvanAgee/spec-lock-canary/actions/runs/36038049474) | 6 s, queued 3 s | refused: `Required status check "spec-lock integration/candidate" is failing.` | 3cb46c2, unchanged |
+| the same plus spec and proof, a6d5ffe | success, [run](https://github.com/EvanAgee/spec-lock-canary/actions/runs/36038077659) | 5 s, queued 3 s | exit 0 | a6d5ffe |
+| unproved code off main's parent, forced, b37c43b | failure, [run](https://github.com/EvanAgee/spec-lock-canary/actions/runs/36038111078) | 6 s | refused: `Cannot force-push to this branch` and `Required status check "spec-lock" is failing.` | 439dea8, unchanged |
 
-   The integration job's log reads `spec-lock: checking d8f1846... as a landing on integration/candidate at 3c2a43f...`, then `- no proof: this code landing adds or edits no docs/proof/*.md file` and `spec-lock checker 0.0.0+0fe5fbda58ae`. So it judged the candidate against the integration tip, not main's (342c4c9), and printed the local checker's line.
-5. Mutation on GitHub: I replaced ruleset 23951818's rules with `deletion` and `non_fast_forward` only, and deleted 23951820. The same walk exited 1 with `GitHub accepted the unproved push to main` and `GitHub accepted the unproved push to integration/candidate`: unproved 0fe41bd and f0b2708 landed although their checks failed ([run](https://github.com/EvanAgee/spec-lock-canary/actions/runs/36033907139), [run](https://github.com/EvanAgee/spec-lock-canary/actions/runs/36033991312)). The force push was still refused by the force-push rule alone.
-6. `enroll ... --apply` again restored both: `updated ruleset spec-lock`, `created ruleset spec-lock integration/candidate` (now 23952024), no workflow writes.
-7. `github-walk.mjs ... --no-land`, the probe for a real repository, exit 0. Unproved 595ea88 was refused on main and 001bab4 on the integration branch, and forced 3edff8a was refused. Both branches kept their tips (47c1966, 77f8ca0), and the canary had 33 branches before and after, so the probe deleted its candidates.
-8. At 35aa16d, whose `bin/` the walked commit shares, `enroll` with its default pin (that commit, not the canary's) exited 1: `required_status_checks on main would refuse a direct write of .github/workflows/spec-lock.yml; land it there through the repository's usual flow, then enroll again`, and the same for the integration branch. Nothing was written. With `--action 2856d69...` it exited 0 with no writes and updated both rulesets in place.
-9. `SPEC_LOCK_CANARY=EvanAgee/spec-lock-canary npm test` at the walked commit ran the walk again inside the suite: 22 pass, 0 fail.
+   The integration job's log shows `Download action repository 'EvanAgee/spec-lock@ef80acc...'`, then `spec-lock: checking fa55f63... as a landing on integration/candidate at 3cb46c2...`, `- no proof: this code landing adds or edits no docs/proof/*.md file` and `spec-lock checker 0.0.0+dfc485bcacbc`. It judged the candidate against the integration tip, not main's (0f8c0c2), and printed the local checker's line.
+7. `github-walk.mjs ... --no-land`, the probe for a real repository, exit 0. It refused unproved 51858f4 on main, unproved f901fa5 on the integration branch, and forced 86ca825. Both branches kept their tips (439dea8, a6d5ffe), and the canary had 53 branches before and after, so the probe deleted its candidates.
+8. `SPEC_LOCK_CANARY=EvanAgee/spec-lock-canary npm test` at the walked commit ran the walk again inside the suite: 26 pass, 0 fail.
 
 ### Activation over this machine's repositories (AC19), under a scratch HOME
 
