@@ -1125,3 +1125,92 @@ test('AC15: enrollment refuses, and changes nothing, where public actions or rul
   const r = s.rollout(['enroll', 'o/r', '--action', sha], gh.env)
   assert.equal(r.code, 0, r.out + r.err)
 })
+
+// docs/specs/spec-lock-proof-toplevel.md: only files directly in docs/proof/ are proofs, and a .md
+// file in a folder below it, such as a review transcript, is ordinary documentation.
+const review = '# Review round 1\n\nThe reviewer found nothing to change.\n'
+
+test('proof-toplevel AC1: a .md file below docs/proof/ is not checked as a proof, beside a proof or alone', () => {
+  const s = scratch()
+  const a = s.init()
+  const b = s.branch('feature', { ...code, [SPEC]: specText(['AC1', 'AC2']), 'docs/proof/x.md': proofText(SPEC, ['AC1', 'AC2']), 'docs/proof/reviews/x.md': review })
+  const r = s.check(a, b)
+  assert.equal(r.code, 0, `a review transcript beside a complete proof was checked as a proof: ${r.out}${r.err}`)
+  const landed = s.git('merge', '--ff-only', 'feature')
+  assert.equal(landed.code, 0, landed.err)
+  assert.equal(s.rev('main'), b)
+
+  // A landing of nested files alone is documentation and needs no proof.
+  const c = s.branch('reviews-only', { 'docs/proof/reviews/x.md': `${review}\nRound 2 agreed.\n`, 'docs/proof/reviews/deeper/r2.md': review })
+  assert.equal(s.check(b, c).code, 0)
+  const docs = s.git('merge', '--ff-only', 'reviews-only')
+  assert.equal(docs.code, 0, docs.err)
+  assert.equal(s.rev('main'), c)
+})
+
+test('proof-toplevel AC2: a code landing whose only proof-shaped file is nested is refused with no proof', () => {
+  const s = scratch()
+  const a = s.init()
+  const b = s.branch('feature', { ...code, [SPEC]: specText(['AC1', 'AC2']), 'docs/proof/reviews/x.md': proofText(SPEC, ['AC1', 'AC2']) })
+  const r = s.check(a, b)
+  assert.equal(r.code, 1, `a nested file stood in for a top-level proof: ${r.out}${r.err}`)
+  assert.match(r.out, /^- no proof: this code landing adds or edits no docs\/proof\/\*\.md file$/m)
+  const refused = s.git('merge', '--ff-only', 'feature')
+  assert.notEqual(refused.code, 0, 'the fast-forward with only a nested proof was allowed')
+  assert.match(refused.err, /spec-lock: refused refs\/heads\/main[\s\S]*no proof/)
+  assert.equal(s.rev('main'), a)
+})
+
+test('proof-toplevel AC3: a top-level proof beside nested files is still checked against its own spec', () => {
+  const s = scratch()
+  const a = s.init()
+  const b = s.branch('feature', { ...code, [SPEC]: specText(['AC1', 'AC2']), 'docs/proof/x.md': proofText(SPEC, ['AC1']), 'docs/proof/reviews/x.md': review })
+  const r = s.check(a, b)
+  assert.equal(r.code, 1, `an incomplete top-level proof was let through: ${r.out}${r.err}`)
+  assert.deepEqual(verdict(r.out).slice(0, -1), ['- docs/proof/x.md: does not name AC2 from docs/specs/x.md'])
+  const refused = s.git('merge', '--ff-only', 'feature')
+  assert.notEqual(refused.code, 0)
+  assert.equal(s.rev('main'), a)
+
+  s.restore(a)
+  s.ok('switch', '-q', 'feature')
+  const c = s.commit({ 'docs/proof/x.md': proofText(SPEC, ['AC1', 'AC2']) })
+  s.ok('switch', '-q', 'main')
+  const landed = s.git('merge', '--ff-only', 'feature')
+  assert.equal(landed.code, 0, landed.err)
+  assert.equal(s.rev('main'), c)
+})
+
+test('proof-toplevel AC4: the git hook, the pre-push adapter and the action agree on nested files under docs/proof/', () => {
+  const s = scratch()
+  const a = s.init()
+  const gh = github(s)
+  const remote = s.at('github.git')
+  const spec = { [SPEC]: specText(['AC1', 'AC2']) }
+  const nested = s.branch('land/nested', { ...code, ...spec, 'docs/proof/reviews/x.md': proofText(SPEC, ['AC1', 'AC2']) })
+  const beside = s.branch('land/beside', { ...code, ...spec, 'docs/proof/x.md': proofText(SPEC, ['AC1', 'AC2']), 'docs/proof/reviews/x.md': review })
+  s.ok('push', '-q', 'origin', 'land/nested', 'land/beside')
+
+  // The AC2 landing: all three refuse it with the same fault and checker line.
+  const hook = s.git('merge', '--ff-only', 'land/nested')
+  const push = s.git('push', '-q', 'origin', 'land/nested:main')
+  const action = gh.runner('land/nested').action(nested, 'main', 'refs/heads/land/nested')
+  assert.deepEqual({ hook: hook.code !== 0, push: push.code !== 0, action: action.code }, { hook: true, push: true, action: 1 }, `${hook.err}${push.err}${action.out}${action.err}`)
+  const printed = verdict(hook.err)
+  assert.equal(printed[0], '- no proof: this code landing adds or edits no docs/proof/*.md file')
+  assert.match(printed[1], /^spec-lock checker \d+\.\d+\.\d+\+[0-9a-f]{12}$/)
+  assert.deepEqual(verdict(push.err), printed)
+  assert.deepEqual(verdict(action.out), printed)
+  assert.equal(s.rev('main'), a)
+  assert.equal(remote.rev('main'), a)
+  s.restore(a)
+
+  // The AC1 landing: all three let it through, and the action names the same checker.
+  const passed = gh.runner('land/beside').action(beside, 'main', 'refs/heads/land/beside')
+  const pushed = s.git('push', '-q', 'origin', 'land/beside:main')
+  const landed = s.git('merge', '--ff-only', 'land/beside')
+  assert.deepEqual({ hook: landed.code, push: pushed.code, action: passed.code }, { hook: 0, push: 0, action: 0 }, `${landed.err}${pushed.err}${passed.out}${passed.err}`)
+  assert.deepEqual(verdict(passed.out), [printed[1]])
+  assert.equal(remote.rev('main'), beside)
+  assert.equal(s.rev('main'), beside)
+})

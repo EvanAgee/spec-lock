@@ -4,7 +4,7 @@ Refuses code that reaches a protected branch without a spec in the hardened shap
 
 ## The rule
 
-A landing is the move of a protected branch from an old commit to a new one. When that move changes any file, it must add or edit at least one proof under `docs/proof/*.md`. Each proof names its spec in front matter:
+A landing is the move of a protected branch from an old commit to a new one. When that move changes any file, it must add or edit at least one proof under `docs/proof/*.md`. Only files directly in `docs/proof/` are proofs: a `.md` file in a folder below it, such as a review transcript, is ordinary documentation. Each proof names its spec in front matter:
 
 ```markdown
 ---
