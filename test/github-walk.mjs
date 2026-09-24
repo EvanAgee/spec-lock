@@ -42,10 +42,17 @@ for (const [key, value] of [['user.name', real('user.name')], ['user.email', rea
 const clone = join(dir, 'canary')
 const git = (...args) => run('git', ['-C', clone, ...args], env)
 const ok = (...args) => must(git(...args), `git ${args.join(' ')}`)
-const api = (path) => JSON.parse(must(run('gh', ['api', path], env), `gh api ${path}`))
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+// The API drops a request now and then (a 502, an unexpected EOF), so each read gets three tries.
+function api(path) {
+  for (let tries = 1; ; tries++) {
+    const r = run('gh', ['api', path], env)
+    if (r.code === 0 || tries === 3) return JSON.parse(must(r, `gh api ${path}`))
+    sleep(5000)
+  }
+}
 
-ok('clone', '-q', `https://github.com/${repo}.git`, clone)
+must(run('git', ['clone', '-q', `https://github.com/${repo}.git`, clone], env), `git clone ${repo}`)
 const a = ok('rev-parse', 'origin/main')
 const remoteMain = () => ok('ls-remote', 'origin', 'refs/heads/main').split('\t')[0]
 const stamp = Date.now().toString(36)
