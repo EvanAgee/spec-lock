@@ -109,16 +109,18 @@ evidence.good = { ...check(c, `land/good-${stamp}`), push: land(c) }
 const d = commitOn(a, { 'app.js': `export const forced = '${stamp}'\n` }, 'feat: force an unproved change')
 evidence.forced = { ...check(d, `land/forced-${stamp}`), push: land(d, '--force') }
 
+// GitHub's refusal names the rule; the repository's URL in the same output may contain spec-lock too.
+const REQUIRED = /Required status check "spec-lock"/
 const failures = []
 const expect = (cond, what) => { if (!cond) failures.push(what) }
 expect(evidence.bad.conclusion === 'failure', 'the check passed the unproved candidate')
 expect(evidence.bad.push.exit !== 0 && evidence.bad.push.mainAfter === a, 'GitHub accepted the unproved push to main')
-expect(/spec-lock/.test(evidence.bad.push.output), 'the refused push does not name the spec-lock check')
+expect(REQUIRED.test(evidence.bad.push.output), 'the refused push does not name the spec-lock check')
 expect(evidence.good.conclusion === 'success', 'the check failed the proved candidate')
 expect(evidence.good.push.exit === 0 && evidence.good.push.mainAfter === c, 'GitHub refused the proved push to main')
 expect(evidence.forced.conclusion === 'failure', 'the check passed the forced unproved candidate')
 expect(evidence.forced.push.exit !== 0 && evidence.forced.push.mainAfter === c, 'GitHub accepted the forced unproved push to main')
-expect(/spec-lock/.test(evidence.forced.push.output), 'the refused force push does not name the spec-lock check')
+expect(REQUIRED.test(evidence.forced.push.output), 'the refused force push does not name the spec-lock check')
 for (const name of ['bad', 'good', 'forced']) expect(evidence[name].jobSeconds < 60, `the ${name} check job took ${evidence[name].jobSeconds} seconds`)
 evidence.failures = failures
 process.stdout.write(JSON.stringify(evidence, null, 2) + '\n')
