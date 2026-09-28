@@ -25,14 +25,14 @@ try {
   } else if (cmd === 'export' && args.length === 3) {
     const manifest = exportCapture(...args)
     process.stdout.write(`exported ${manifest.runs.length} capture; candidate only\n`)
-  } else if (['check','check-candidate'].includes(cmd) && args.length === 2) {
-    const candidate = cmd === 'check-candidate' ? {checked:0} : false
+  } else if (['check','check-candidate','check-semantic'].includes(cmd) && args.length === 2) {
+    const candidate = cmd !== 'check' ? {checked:0,semantic:cmd==='check-semantic'} : false
     const faults = checkRange(args[0], args[1], [], candidate)
     if (faults.length) {
       process.stdout.write(`spec-lock: refused ${args[0]}..${args[1]}\n${faults.map((f) => `- ${f}`).join('\n')}\n${checker()}\n`)
       process.exit(1)
     }
-    if(candidate) process.stdout.write(`${candidate.checked ? 'candidate binding records checked' : 'no candidate binding records checked'} (${candidate.checked}); actor provenance unauthenticated; semantic evidence and required policy deferred\n`)
+    if(candidate) process.stdout.write(`${candidate.checked ? 'candidate binding records checked' : 'no candidate binding records checked'} (${candidate.checked}); actor provenance unauthenticated; ${candidate.semantic?`${candidate.checked?'':'no '}semantic review records checked; required policy deferred`:'semantic evidence and required policy deferred'}\n`)
     process.stdout.write(`spec-lock: ok\n${checker()}\n`)
   } else if ((cmd === 'reference-transaction' || cmd === 'pre-push') && args.length >= 2) {
     const [arg, repo, ...guarded] = args

@@ -227,3 +227,44 @@ expected value and observation. Session source records must resolve distinct aut
 and verifier ids and agree with approval. These are editable local records. Success
 reports actor provenance as unauthenticated and does not prove an independent actor,
 prevent test writes or intercept claims in chat.
+
+### Candidate semantic evidence
+
+`spec-lock check-semantic <old> <new>` adds AC5–AC7 record checks to the existing
+`check-candidate` bindings. It requires a verifier-approved semantic plan on every
+claimed command approval. This remains an opt-in candidate CLI. Ordinary checks and
+Git adapters still refuse version 2; repository policy and activation are later work.
+
+The approval's `semantic` object has `version: 1`, `tests`, `criteria`, `goldens`, and
+`golden_reviews`. The selected test paths must have identical bytes in red and green. The exact command and working
+directory must also match.
+Manifest version 1 cannot pass check-semantic. Each criterion has `ac`, `red_required`, `red_reason` when red does
+not apply, and `oracle`. The oracle names id, ac, reviewer, supported verdict, reason,
+expected answer, and selected `expectation` and `source` path/SHA-256 pairs. Source
+kind is `requirement`, `reference` or `approved-fixture`. The verifier must explain
+why the answer is independent of the implementation. The checker binds that review
+to bytes; it cannot decide whether the explanation is correct.
+
+Selected changed goldens require exact old/new SHA-256 values, id, criterion, path,
+reviewer, supported verdict, reason and `approved_at` no later than the supporting
+run. A missing file is represented by a null digest. Capture checks the approved
+bytes before executing; export and semantic checking recheck them. Changes after
+the reviewed commit still refuse under the existing proof-only follow-up rule.
+
+For semantic export, the judgment file is `{judges, red_captures}`. Each red entry
+contains `{scratch, reviews}`. Scratch paths are read locally and never exported.
+The exporter copies red approval, session and output artifacts alongside green
+records. Each review binds id, ac, oracle id, red/green run ids and `red_sha256` /
+`green_sha256`, reviewer, verdict, `failure_kind: "assertion"`, expected/observed
+symptom and correction reason. The observed symptom must occur in the raw output.
+A red is a recorded nonzero ordinary exit, never a supporting green. A controlled
+old-code revision declares `control: {baseline, overlay}` on its approval; overlay
+entries name paths and exact SHA-256 bytes, matching the green revision. Undeclared
+changes to that baseline refuse. Spec and oracle identity remain the same.
+
+The exact contract and CLI fixtures are in `docs/specs/portable-evidence-semantics.md`
+and `test/semantic-evidence.test.mjs`. Run the offline semantic walk with
+`node test/portable-evidence-walk.mjs semantic candidate <output.json>`.
+It saves exact synthetic inputs before cleanup. The prior checker uses the same
+logical corpus through its binding-only command, with a documented assembly adapter
+for the then-new semantic fields. Runtime comparisons cover checker calls only.

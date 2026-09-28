@@ -1,0 +1,20 @@
+{
+  "stage": "semantic",
+  "baseline": "068dcdd428ddc029b4ccad8c2e4285da62fc7aea",
+  "repeats": 3,
+  "cases": [
+    {"id":"complete","valid":true},
+    {"id":"missing-red","valid":false},
+    {"id":"unlinked-red","valid":false},
+    {"id":"rejected-red","valid":false},
+    {"id":"syntax-error","valid":false},
+    {"id":"missing-dependency","valid":false},
+    {"id":"absent-oracle","valid":false},
+    {"id":"rejected-oracle","valid":false},
+    {"id":"stale-oracle","valid":false},
+    {"id":"missing-golden","valid":false},
+    {"id":"wrong-golden","valid":false},
+    {"id":"late-golden","valid":false},
+    {"id":"altered-red","valid":false}
+  ]
+}

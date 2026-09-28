@@ -30,7 +30,7 @@ binding checks plus the rules below. `check-candidate` remains explicitly bindin
 normal check and Git adapters still refuse version 2. Required policy is later work.
 Stripping semantic records never makes `check-semantic` accept a binding-only manifest.
 
-Command approvals optionally carry `semantic`, version 1, with `criteria`, one per
+Command approvals optionally carry `semantic`, version 1, with `tests`, a nonempty list of selected test paths whose bytes must match across red/green, and `criteria`, one per
 approved criterion, and `goldens`, the selected expected-output paths. Each criterion
 has `ac`, `red_required`, and a reason if red is not required, plus `oracle` review.
 The oracle has a unique id, criterion, reviewer matching the verifier, supported verdict,
@@ -62,7 +62,7 @@ an authenticated or automatic semantic decision.
 
 Red runs must be captured nonzero ordinary exits, match their own approved expected
 outcome, retain clean status and exact input/output bindings, and precede green.
-Red and green bind the same spec bytes, oracle source, expectation and test inputs.
+Red and green execute identical argv in the same relative working directory and bind the same spec bytes, oracle source, expectation and declared test overlay inputs.
 Different implementation bytes are allowed at the red revision. A controlled revision
 may add the new spec and test to old code, but its approval must identify `control`
 with original baseline and exact overlay paths/digests; all differences from that
@@ -103,7 +103,7 @@ plus [assertion output](https://nodejs.org/api/assert.html) preserve the semanti
 responsibility and work across runners, at the cost of review effort. Choose that
 existing parent-spec approach. Both use local tools with no added service fee.
 [Git blob reads](https://git-scm.com/docs/git-cat-file) supply the committed bytes;
-working-tree reads alone could accept later edits. Runtime is the installed Node 22.
+working-tree reads alone could accept later edits. The measured local runtime is Node v26.7.0; the package retains its Node >=22 contract.
 
 ## Non-goals
 
@@ -115,3 +115,11 @@ No result establishes reliability outside the frozen synthetic corpus.
 
 None blocks the authorized local increment. Review rounds use Codex high then Opus 5.5
 high, with further rounds only for actual bugs under the current owner contract.
+
+Review clarification: check-semantic refuses version 1 explicitly. A new spec on old code requires control metadata. Inspection errors are not missing files; semantic blob reads share the existing checker's 256 MiB buffer. The first review found these boundaries missing, and each has an observed regression red.
+
+Path comparison uses the existing NUL-delimited changes helper. Git's
+[diff-tree -z](https://git-scm.com/docs/git-diff-tree) preserves filenames exactly.
+Changing [core.quotePath](https://git-scm.com/docs/git-config#Documentation/git-config.txt-corequotePath)
+would address non-ASCII bytes but still escape control characters. Both cost no new
+dependency; reusing the existing helper also covers newline-containing filenames.

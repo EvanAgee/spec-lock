@@ -14,7 +14,10 @@ export function editCase(m, id, f) {
   if (id === 'zero-test' || id === 'skipped-test') m.judges[0].observation = {kind:'test', tests:[], executed:0, skipped:id === 'skipped-test' ? 1 : 0, assertion:'double(7) equals 14', expected:'14', observed:'no tests'}
   if (id === 'unsupported') m.judges[0].verdict = 'unsupported'
 }
-if (process.argv[1] === new URL(import.meta.url).pathname) {
+if (process.argv[1] === new URL(import.meta.url).pathname && process.argv[2] === 'semantic') {
+  process.argv.splice(2,1)
+  await import('./semantic-walk.mjs')
+} else if (process.argv[1] === new URL(import.meta.url).pathname) {
   const [mode = 'candidate', output = 'docs/proof/portable-evidence-capture/candidate.json', cli] = process.argv.slice(2)
   if (!['baseline','candidate'].includes(mode)) throw Error('mode must be baseline or candidate')
   const f = fixture(cli && resolve(cli), mode === 'candidate')
