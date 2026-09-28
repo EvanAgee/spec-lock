@@ -14,4 +14,8 @@ jobs:
         with:
           node-version: 22
       - run: git --version
+      - name: Use the source commit identity for fixture commits
+        run: |
+          git config user.name "$(git log -1 --format=%an)"
+          git config user.email "$(git log -1 --format=%ae)"
       - run: npm test

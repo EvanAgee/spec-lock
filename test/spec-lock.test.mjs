@@ -10,6 +10,9 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { register, HOOK, PUSH_HOOK } from '../lib/lock.mjs'
 
+const fixtureIdentity = Object.fromEntries(['name', 'email'].map(k => [k, spawnSync('git', ['config', `user.${k}`], {encoding:'utf8'}).stdout.trim()]))
+assert.ok(fixtureIdentity.name && fixtureIdentity.email, 'configured Git identity required')
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CLI = join(ROOT, 'bin', 'spec-lock')
 const ACTION = join(ROOT, 'bin', 'spec-lock-action')
@@ -39,8 +42,8 @@ function scratch() {
   Object.assign(env, {
     HOME: dir, GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: '1',
     SPEC_LOCK_LOG: join(dir, 'landings.log'),
-    GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
-    GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+    GIT_AUTHOR_NAME: fixtureIdentity.name, GIT_AUTHOR_EMAIL: fixtureIdentity.email,
+    GIT_COMMITTER_NAME: fixtureIdentity.name, GIT_COMMITTER_EMAIL: fixtureIdentity.email,
   })
   const at = (repo) => {
     const run = (cmd, args, extra = {}) => {

@@ -1,0 +1,20 @@
+{
+  "frozen": "2026-09-28",
+  "baseline": "6d5ced4",
+  "repeats": 3,
+  "cases": [
+    {"id":"complete", "valid":true},
+    {"id":"incomplete", "valid":false},
+    {"id":"duplicate", "valid":false},
+    {"id":"extra", "valid":false},
+    {"id":"wrong-spec", "valid":false},
+    {"id":"altered-output", "valid":false},
+    {"id":"same-session", "valid":false},
+    {"id":"absent-identity", "valid":false},
+    {"id":"zero-test", "valid":false},
+    {"id":"skipped-test", "valid":false},
+    {"id":"unsupported", "valid":false},
+    {"id":"code-after-review", "valid":false}
+  ],
+  "capture_cases": ["success", "exit-3", "timeout-100ms", "overflow-1024", "changed-input", "different-command", "missing-command", "interrupted"]
+}

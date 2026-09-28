@@ -6,26 +6,33 @@
 //                                    the push adapter; reads git's pre-push lines on stdin
 // Exit 1 is a refusal with its reasons; exit 2 means the check could not run, which also refuses.
 // Every verdict ends with the checker line, so the git hook and the GitHub action show they ran the same code.
-import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { capture, exportCapture, identity } from '../lib/portable.mjs'
 import { checkRange, prePush, referenceTransaction } from '../lib/lock.mjs'
 
 // The package version plus a hash of the files that judge a landing.
 function checker() {
-  const hash = createHash('sha256')
-  for (const file of ['spec-lock', '../lib/lock.mjs', '../lib/spec.mjs']) hash.update(readFileSync(new URL(file, import.meta.url)))
-  const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
-  return `spec-lock checker ${version}+${hash.digest('hex').slice(0, 12)}`
+  return `spec-lock checker ${identity()}`
 }
 
 const [cmd, ...args] = process.argv.slice(2)
 try {
-  if (cmd === 'check' && args.length === 2) {
-    const faults = checkRange(args[0], args[1])
+  if (cmd === 'capture' && args.length >= 2) {
+    if(args.length > 2 && args[2] !== '--') throw Error('capture requires -- before explicit argv')
+    const result = await capture(args[0],args[1],args.length>2 ? args.slice(3) : undefined)
+    process.stdout.write(`capture ${result.record.run.id}: ${result.record.run.outcome} exit=${result.record.run.exit}\n`)
+    process.exitCode = result.success ? 0 : 1
+  } else if (cmd === 'export' && args.length === 3) {
+    const manifest = exportCapture(...args)
+    process.stdout.write(`exported ${manifest.runs.length} capture; candidate only\n`)
+  } else if (['check','check-candidate'].includes(cmd) && args.length === 2) {
+    const candidate = cmd === 'check-candidate' ? {checked:0} : false
+    const faults = checkRange(args[0], args[1], [], candidate)
     if (faults.length) {
       process.stdout.write(`spec-lock: refused ${args[0]}..${args[1]}\n${faults.map((f) => `- ${f}`).join('\n')}\n${checker()}\n`)
       process.exit(1)
     }
+    if(candidate) process.stdout.write(`${candidate.checked ? 'candidate binding records checked' : 'no candidate binding records checked'} (${candidate.checked}); actor provenance unauthenticated; semantic evidence and required policy deferred\n`)
     process.stdout.write(`spec-lock: ok\n${checker()}\n`)
   } else if ((cmd === 'reference-transaction' || cmd === 'pre-push') && args.length >= 2) {
     const [arg, repo, ...guarded] = args

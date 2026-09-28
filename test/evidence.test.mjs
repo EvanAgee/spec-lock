@@ -12,6 +12,9 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { register } from '../lib/lock.mjs'
 
+const fixtureIdentity = Object.fromEntries(['name', 'email'].map(k => [k, spawnSync('git', ['config', `user.${k}`], {encoding:'utf8'}).stdout.trim()]))
+assert.ok(fixtureIdentity.name && fixtureIdentity.email, 'configured Git identity required')
+
 const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'spec-lock')
 const SPEC = 'docs/specs/value.md'
 const PROOF = 'docs/proof/t1.md'
@@ -45,8 +48,8 @@ function fixture() {
   Object.assign(env, {
     HOME: dir, GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: '1',
     SPEC_LOCK_LOG: join(dir, 'landings.log'),
-    GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
-    GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+    GIT_AUTHOR_NAME: fixtureIdentity.name, GIT_AUTHOR_EMAIL: fixtureIdentity.email,
+    GIT_COMMITTER_NAME: fixtureIdentity.name, GIT_COMMITTER_EMAIL: fixtureIdentity.email,
   })
   const run = (cmd, args) => {
     const r = spawnSync(cmd, args, { cwd: repo, env, encoding: 'utf8', timeout: 30000 })

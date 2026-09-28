@@ -191,3 +191,39 @@ npm test
 ```
 
 Every test builds a synthetic repository in a temp directory with a scratch global git config.
+
+### Candidate version 2 capture
+
+Version 2 is an unfinished policy. It can record and check command, revision, output,
+claim and session bindings. Red/oracle/golden semantics, repository selection and
+workflow integration remain separate work. The regular checker and Git adapters
+refuse version 2; no hook or configuration is activated by these commands.
+
+```sh
+spec-lock capture /scratch/approval.json /scratch/run -- node test/value.mjs
+spec-lock export /scratch/run /scratch/judgments.json docs/proof/value.evidence
+spec-lock check-candidate <base-commit> <proof-commit>
+```
+
+The approval records permission already granted for the exact arguments, clean
+revision, selected tracked inputs and limits. Capture creates a detached verification
+worktree, saves output outside it, then removes only that checkout. It needs POSIX
+process groups and Git. It runs trusted approved commands with local permissions;
+it is not a sandbox. Approved checks must not daemonize. A detached child that escapes its process group can survive cleanup, but cannot hold the recorder open past the command deadline. Missing commands, interruptions, timeouts, output overflow and
+changed inputs stay failed. Supporting claims require a green run whose exit and exact stdout match approval. Empty streams are saved as zero-byte files. Existing
+scratch/export destinations are refused to prevent overwrites.
+
+Export reads the captured bytes and supplied judgments. It does not invent an
+observation or turn a failed execution into support. Commit the exported files and
+a proof naming their `manifest.json` in its `evidence:` field, after the reviewed
+code commit. The checker reads only committed objects and executes no manifest
+commands. The full writer/reader contract and fields are in
+[the capture specification](docs/specs/portable-evidence-capture.md#implementation-contract).
+The synthetic examples in `test/portable-fixture.mjs` create approval and judgment
+records; `node test/portable-evidence-walk.mjs` exercises the candidate path.
+
+A supporting judgment needs named executed tests and a concrete assertion,
+expected value and observation. Session source records must resolve distinct author
+and verifier ids and agree with approval. These are editable local records. Success
+reports actor provenance as unauthenticated and does not prove an independent actor,
+prevent test writes or intercept claims in chat.
