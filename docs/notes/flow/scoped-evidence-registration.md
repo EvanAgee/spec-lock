@@ -1,0 +1,3 @@
+| Ticket | Wall time from implementation to merge | Review findings | Bugs found by live proof after review | Tokens/cost |
+|---|---|---|---|---|
+| Selected registration isolation | Local only; no merge authorized, time-to-merge unavailable | Four alternating high-effort reviews found shared-config aliases, prunable-worktree refusal, truncated diagnostics and moved-repository bypass. All repaired with observed-red regressions; distinct verifier approved final inputs. | Original reproducer confirmed unrelated commits blocked by missing policy or checker. | /cost unavailable in this tool session; not estimated. |

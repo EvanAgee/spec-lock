@@ -2,8 +2,8 @@
 // Switches the lock on for this machine and enrolls GitHub repositories in it.
 //
 // spec-lock-rollout activate <rollout file>
-//     Once every lane in the file has landed: write the central file, add the two hooks to the global
-//     git config, record the drained lanes and each repository's guarded tips, and confirm git runs the
+//     Once every lane in the file has landed: write the central file, register the two hooks in selected common
+//     configs or the legacy global config, record the drained lanes and each repository's guarded tips, and confirm git runs the
 //     hooks in each repository. It changes nothing while a lane is in flight or a repository's own config
 //     overrides the hooks.
 // spec-lock-rollout doctor <repository>...
@@ -22,13 +22,13 @@
 //   integration <branch>       an integration branch, written to the central file
 //   opt-out <absolute path>    a repository the lock leaves alone, written to the central file
 import { execFileSync, spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {selectedPolicy,commonRepository,ownerPolicy} from '../lib/policy.mjs'
 import {identity as checkerIdentity} from '../lib/portable.mjs'
-import { HOOK, PUSH_HOOK, logFile, register } from '../lib/lock.mjs'
+import { HOOK, PUSH_HOOK, logFile, register, hookConfig } from '../lib/lock.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const HOOKS = { 'reference-transaction': HOOK, 'pre-push': PUSH_HOOK }
@@ -46,13 +46,67 @@ const lines = (text) => text.split('\n').filter(Boolean)
 const git = (repo, ...args) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', timeout: 30000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })
 const stop = (faults) => { process.stderr.write(faults.map((f) => `spec-lock-rollout: ${f}\n`).join('')); process.exit(1) }
 
-// Any hook.spec-lock-* key outside the global config, where activation puts the hooks. A repository,
+// Any hook.spec-lock-* key outside the global config, where legacy activation puts the hooks. A repository,
 // worktree or included file can use one to switch a hook off, run another command under its name, or
 // empty its event list, and git would then skip the lock in that repository without a word.
 function overrides(repo) {
   if (git(repo, 'rev-parse', '--git-dir').status !== 0) return [`${repo} is not a git repository`]
   const keys = lines(git(repo, 'config', '--show-scope', '--get-regexp', '^hook\\.spec-lock-').stdout).map((l) => l.split(/\s+/))
   return keys.filter(([scope]) => scope !== 'global').map(([scope, key]) => `${repo}: ${key} is set in ${scope} config, which overrides the global hook`)
+}
+
+// Config is shared by all linked worktrees, including with worktreeConfig enabled.
+function worktrees(repo) {
+  const result=git(repo,'worktree','list','--porcelain','-z')
+  if(result.status!==0)throw Error(`cannot list worktrees for ${repo}`)
+  return [...new Set([repo,...result.stdout.split('\0').filter(s=>s.startsWith('worktree ')).map(s=>s.slice(9))].filter(existsSync).map(path=>realpathSync(path)))]
+}
+function scopedOverrides(repo) {
+  const config=join(commonRepository(repo),'config')
+  if(lstatSync(config).isSymbolicLink())return [`${repo}: common config is a symlink; owner migration required`]
+  const ownStat=statSync(config,{bigint:true})
+  // Inspect every include, even inactive conditions and empty files. Effective origins omit both.
+  const pending=[]
+  for(const variable of ['GIT_CONFIG_GLOBAL','GIT_CONFIG_SYSTEM']) {
+    const paths=git(repo,'var',variable)
+    if(![0,1].includes(paths.status))throw Error(`cannot locate ${variable}`)
+    pending.push(...lines(paths.stdout).map(path=>({path:resolve(repo,path),depth:0})))
+  }
+  const visited=new Set()
+  while(pending.length) {
+    const {path,depth}=pending.pop()
+    if(visited.has(path)||!existsSync(path))continue
+    if(depth>10)throw Error('global include nesting exceeds the safe inspection limit')
+    visited.add(path)
+    const origin=statSync(path,{bigint:true})
+    if(origin.dev===ownStat.dev&&origin.ino===ownStat.ino)return [`${repo}: common config is reachable from global or system configuration; owner migration required`]
+    const includes=git(repo,'config','--file',path,'--no-includes','--null','--path','--get-regexp','^(include|includeif\\..*)\\.path$')
+    if(![0,1].includes(includes.status))throw Error(`cannot inspect includes in ${path}`)
+    for(const entry of includes.stdout.split('\0').filter(Boolean)) {
+      const split=entry.indexOf('\n')
+      if(split<0)throw Error(`include without a path in ${path}`)
+      pending.push({path:resolve(dirname(path),entry.slice(split+1)),depth:depth+1})
+    }
+  }
+  const expected=hookConfig(join(ROOT,'bin'),'selected',commonRepository(repo))
+  const result=git(repo,'config','--null','--show-scope','--show-origin','--get-regexp','^hook\\.spec-lock-')
+  if(result.status===1)return []
+  if(result.status!==0)throw Error(`cannot read hook settings for ${repo}`)
+  const fields=result.stdout.split('\0');fields.pop()
+  const faults=[],seen=new Set()
+  for(let i=0;i<fields.length;i+=3) {
+    const [scope,origin,entry]=fields.slice(i,i+3),split=entry.indexOf('\n')
+    const key=split<0?entry:entry.slice(0,split),value=split<0?'':entry.slice(split+1)
+    let own=false
+    try{own=scope==='local'&&origin.startsWith('file:')&&realpathSync(resolve(repo,origin.slice(5)))===config}catch{/* Unknown origins are overrides. */}
+    if(!own||!Object.hasOwn(expected,key)||expected[key]!==value||seen.has(key))faults.push(`${repo}: ${key} in ${scope} config conflicts with selected common registration; owner migration required`)
+    seen.add(key)
+  }
+  if(seen.size&&Object.keys(expected).some(key=>!seen.has(key)))faults.push(`${repo}: incomplete selected common registration`)
+  return faults
+}
+function hasLocalSelected(repo) {
+  return [HOOK,PUSH_HOOK].some(name=>/(?:^|\s)--selected(?:\s|$)/.test(git(repo,'config','--local','--get-all',`hook.${name}.command`).stdout))
 }
 
 // The shared hooks git would not run in a repository right now; a disabled one is listed as such.
@@ -82,8 +136,9 @@ function untrusted(repo) {
 function doctor(repos) {
   let found = 0
   for (const repo of repos) {
-    const faults = overrides(repo)
-    if (!faults[0]?.endsWith('not a git repository')) faults.push(...missing(repo), ...untrusted(repo))
+    const selected=hasLocalSelected(repo)
+    const faults = selected ? worktrees(repo).flatMap(path=>[...scopedOverrides(path),...missing(path)]) : overrides(repo)
+    if (!faults[0]?.endsWith('not a git repository')) faults.push(...(selected?[]:missing(repo)), ...untrusted(repo))
     process.stdout.write(faults.length ? faults.map((f) => `${f}\n`).join('') : `${repo}: ok\n`)
     found += faults.length
   }
@@ -119,23 +174,23 @@ function selectedPlan(file) {
   const scope=[...new Set(selected)]
   const text=[...settings.filter(l=>!l.startsWith('integration ')),...scope.map(p=>`select ${p}`),...settings.filter(l=>l.startsWith('integration '))].join('\n')+'\n'
   const policy=selectedPolicy(text)
-  const plan={...policy,inventory:[...new Set(inventory)],lanes,checker:checkerIdentity(),guarded:scope.map(repo=>({repo,branches:['main','master',...policy.integration,...lines(git(repo,'for-each-ref','--format=%(symref:lstrip=3)','refs/remotes/*/HEAD').stdout)]})),exceptions:['ordinary documentation','first commit','previously landed or pulled content','owner hook bypass']}
+  const plan={...policy,registration:{method:'common-repository-config',files:scope.map(repo=>join(repo,'config'))},inventory:[...new Set(inventory)],lanes,checker:checkerIdentity(),guarded:scope.map(repo=>({repo,branches:['main','master',...policy.integration,...lines(git(repo,'for-each-ref','--format=%(symref:lstrip=3)','refs/remotes/*/HEAD').stdout)]})),exceptions:['ordinary documentation','first commit','previously landed or pulled content','owner hook bypass']}
   return {plan,text}
 }
 function activateSelected(file) {
   const {plan,text}=selectedPlan(file)
   process.stdout.write(JSON.stringify(plan,null,2)+'\n')
   const faults=plan.lanes.filter(([,state])=>state!=='landed').map(([id,state])=>`lane ${id} is ${state}; activate once it has landed`)
-  for(const repo of plan.selected)faults.push(...overrides(repo))
+  for(const repo of plan.selected)for(const path of worktrees(repo))faults.push(...scopedOverrides(path))
   const central=join(homedir(),'.config','spec-lock','config')
   if(existsSync(central)&&readFileSync(central,'utf8')!==text)faults.push(`${central} differs from the selected plan; only its owner edits it`)
   if(faults.length)stop(faults)
   if(!existsSync(central)){mkdirSync(dirname(central),{recursive:true});writeFileSync(central,text)}
-  register(undefined,join(ROOT,'bin'),'selected')
+  for(const file of plan.registration.files)register(file,join(ROOT,'bin'),'selected',dirname(file))
+  const unrun=plan.selected.flatMap(repo=>worktrees(repo).flatMap(path=>[...scopedOverrides(path),...missing(path)]));if(unrun.length)stop(unrun)
   const recordFile=join(dirname(logFile()),'activation')
   mkdirSync(dirname(recordFile),{recursive:true})
   appendFileSync(recordFile,JSON.stringify({at:new Date().toISOString(),event:'activated-selected',...plan})+'\n')
-  const unrun=plan.selected.flatMap(missing);if(unrun.length)stop(unrun)
 }
 
 function activate(file) {

@@ -1,6 +1,6 @@
 # spec-lock
 
-Refuses code that reaches a protected branch without a spec in the hardened shape and a proof naming every acceptance criterion. One checker, called by two global git hooks on this Mac and by a GitHub action.
+Refuses code that reaches a protected branch without a spec in the hardened shape and a proof naming every acceptance criterion. One checker, called by two Git hooks and a GitHub action. Selected activation registers hooks per repository; legacy activation registers them globally.
 
 ## The rule
 
@@ -107,7 +107,7 @@ Every checked move of a guarded branch appends one tab-separated line to `$SPEC_
 spec-lock check <old> <new>   # exit 0 when the move may land, 1 with the reasons when it may not, 2 when it cannot be checked
 ```
 
-`bin/spec-lock-hook` is the git adapter. `register(configFile, binDir, mode)` in `lib/lock.mjs` adds it to a git config file as two config-defined hooks, and changes nothing else there:
+`bin/spec-lock-hook` is the git adapter. `register(configFile, binDir, mode, common)` in `lib/lock.mjs` adds it to a git config file as two config-defined hooks, and changes nothing else there:
 
 - `spec-lock-reference-transaction` refuses in the `prepared` state, so merges, fast-forwards, resets, commits and `update-ref` on a guarded branch all go through it, and it keeps old tips in the `committed` state.
 - `spec-lock-pre-push` judges each push to a guarded remote branch from the tip the remote advertised to the pushed commit. A force push, a tip that is not a descendant, and another branch pushed to main (`git push origin feature:main`) are checked like a local landing. One refused ref stops the whole push. A branch new to the remote is compared with the empty tree, less what a guarded branch in the local repository already holds. A push whose remote tip is not in the local repository cannot be checked and is refused; fetch first.
@@ -285,16 +285,46 @@ integration integration/candidate
 `spec-lock-rollout preview <file>` prints effective common repositories, guarded
 branches, evidence requirement, policy/checker identity and exceptions without writing.
 After the owner authorizes activation, `spec-lock-rollout activate <file>` prints the
-plan before registering selected hooks. An inventory entry never selects a repository.
+plan before registering selected hooks in each selected common Git config. Preview lists
+these registration files. No global hook keys are written. An inventory entry never
+selects a repository.
 The central owner file stores canonical common Git directories, so linked worktrees
 share selection. `evidence legacy` explicitly retains legacy evidence rules within
 selected scope. Existing legacy installations keep their opt-out behavior.
 
 The hook registration retains a selected marker. Removing the owner configuration or
 replacing it with a legacy file then refuses instead of weakening the requirement.
-Malformed selection fails closed because scope cannot be established. Unselected
-repositories pass without requiring Node. The owner file remains under the operator's
+Malformed selection refuses operations in registered repositories because scope cannot
+be established. Ordinary unrelated repositories have no new hook to invoke. Each new selected command
+also checks common-directory identity before invoking the checker, so even a later local
+include cannot spread policy or missing-executable failures into another repository. They require no Node. The owner file remains under the operator's
 home; candidate repository files and local policy keys cannot replace it.
+
+Selected activation checks existing worktrees for conflicting hook settings before
+writing. Symlinked common configs and common configs also loaded in global or system
+scope refuse before writes, including inactive conditional includes and empty files.
+Include inspection conservatively follows all conditions and refuses nesting beyond ten levels. Exact common-config registration is idempotent. Existing global registrations
+require owner migration; activation never removes them. `doctor` checks the shared
+registration and each current worktree, including later worktree-specific overrides. Missing, prunable worktree folders are
+skipped; their registrations inherit again if the worktree returns.
+Run it from the checker installation named by the hook commands. Preserve that
+installation until registration is removed. Existing `core.hooksPath` hooks remain.
+
+To roll back, inspect each previewed common config and confirm its four command/event
+values still match the activation. Remove only those four `hook.spec-lock-*` keys with
+`git config --file <common-config> --unset-all <key>`. Preserve unrelated settings,
+existing hooks and logs. Remove the owner policy only after all its registrations are
+removed. Do not restore a whole config snapshot over concurrent edits.
+
+Registration is not a transaction across files. An I/O failure can leave partial
+selected registration; activation reports failure and doctor identifies missing keys.
+Deleting or disabling registration still bypasses checking. Moving or copying a registered repository refuses operations until its owner updates
+policy and registration. Inherited-only commands still leave unrelated repositories alone. No same-user tamper protection is claimed. Direct CLI
+calls still parse the central owner policy, including calls from unrelated repositories;
+this isolation guarantee covers Git operations that do not register these hooks. If the
+owner file is deleted, a separate manual legacy activation from an unrelated repository
+cannot discover selected registrations elsewhere. It can still add global legacy hooks.
+Do not mix that owner operation with a selected deployment.
 
 Selected semantic export binds the manifest's `policy` to `selected-v1:<sha256>` of
 exact central bytes. The CLI, local landing and pre-push require the same policy,

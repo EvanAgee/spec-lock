@@ -66,8 +66,9 @@ test('selected activation AC9: previewed scope is registered with a persistent s
  const r=f.run('node',[join(dirname(f.cli),'spec-lock-rollout'),'activate',rollout]);assert.equal(r.code,0,r.err)
  assert.deepEqual(JSON.parse(r.out).selected,[f.common])
  writeFileSync(join(inventory,'code.js'),'unproved edit');f.ok('-C',inventory,'add','.');f.ok('-C',inventory,'commit','-q','-m','test: inventory stays unselected')
- assert.match(r.out,/"selected"/);assert.match(readFileSync(f.env.GIT_CONFIG_GLOBAL,'utf8'),/--selected/)
+ assert.match(r.out,/"selected"/);assert.match(readFileSync(join(f.common,'config'),'utf8'),/--selected/)
  const bad=f.attempt('merge',f.tips.missing);assert.notEqual(bad.code,0);assert.equal(bad.after,bad.before)
+ for(const adapter of ['merge','linked','push']){const good=f.attempt(adapter,f.tips.valid);assert.equal(good.code,0,good.out+good.err);assert.equal(good.after,good.target)}
  rmSync(f.central)
  const missing=f.attempt('push',f.tips.missing);assert.notEqual(missing.code,0);assert.match(missing.err,/required policy/)
 })
