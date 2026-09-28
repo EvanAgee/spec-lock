@@ -3,20 +3,56 @@ tags: [portable-evidence, candidate, cli]
 date: 2026-09-28
 issue: local-record-and-check
 spec: docs/specs/portable-evidence-capture.md
-walked: pending
+walked: ecf6441eeddf14a26e6c65638b5f3b59ed8653de
 ---
 # Record and check a complete verification run
 
-Pre-commit verification is complete. No activation, public push or merge.
-The independent replay of the implementation commit remains pending.
+Local implementation and independent replay are complete. The verifier ran source
+commit `ecf6441eeddf14a26e6c65638b5f3b59ed8653de` in a clean detached checkout.
+This candidate remains inactive. No push or merge occurred.
 
 ## What I walked
 
-AC2, AC3, AC4 and AC8 have targeted CLI tests in
-`test/portable-evidence.test.mjs`. The frozen AC12 walk produced 36 baseline
-and 36 candidate checks, three runs of each logical case. Baseline accepted
-21/33 invalid attempts and refused 0/3 valid attempts. Candidate observations,
-raw times and capture outcomes are retained below this proof directory.
+The independent verifier ran all 18 targeted tests against the exact source commit.
+Every test passed, none skipped. Input hashes and clean Git status matched before
+and after all four approved commands. The output and execution metadata are in
+`portable-evidence-capture/final-verifier/`.
+
+| Criterion | Assertion and expected result | Observed result and source |
+|---|---|---|
+| AC2 | Each live criterion has exactly one same-spec supported claim. Missing, duplicate, extra and wrong-spec claims must refuse. | Targeted tests 3 and 4 passed. The complete frozen case passed 3/3; all incomplete, duplicate, extra and wrong-spec variants refused. See the test transcript and candidate ledger. |
+| AC3 | Capture the approved command at a clean revision, retain exact bytes and limits, and preserve failures. The good command asserts double(7) = 14 and prints value=14 with empty stderr. | Tests 1, 2, 6 and 8–18 passed, including review reproducers. Eight walk attempts produced one successful record, six failure records and one command-mismatch refusal before execution. Exit 3, timeout, overflow, changed input, missing executable and interruption stayed failures. |
+| AC4 | Changed output, revisions, run/judge references, inputs or session bytes must refuse; a proof-only follow-up must pass. The fingerprint must cover decision code. | Tests 3 and 5 passed through the real CLI. The verifier independently recomputed `0.0.0+d03b071e9c55`; every candidate observation named it. |
+| AC8 | Require distinct resolved sessions, a named executed assertion and concrete observation. Refuse same-session, absent identity, zero-test, skipped or unsupported claims. Disclose unauthenticated provenance. | Tests 3, 4 and 10 passed. Test 10 executed and captured a real command printing tests=0, then observed the judgment refusal. Separate author and verifier sessions are recorded below; local labels are not authenticated identities. |
+| AC12 | Recompute paired outcomes and times from retained runs. Altered outcomes or missing denominators must refuse. | Test 7 passed with actual receipt CLI refusals. The verifier independently recomputed all counts, medians and ranges, then checked the saved receipt. The author rechecked the copied receipt and its output hashes. |
+
+The historical eleven throwaway code mutations all failed their intended assertions.
+The final verifier inspected those saved failures and reran the repaired tests; it did
+not rerun the historical mutations. Two receipt mutations also refused. The full
+pre-commit suite had 48 tests: 47 passed, zero failed, one opt-in remote canary skipped.
+
+## Measured impact
+
+The frozen walk contains 12 logical cases, each run three times per revision.
+
+| Measure | Baseline | Final independent candidate |
+|---|---:|---:|
+| Invalid attempts accepted | 21/33 | 0/33 |
+| Valid attempts refused | 0/3 | 0/3 |
+| Automatically captured records | 0 | 7 |
+| Valid complete-case checker median | 462.416 ms | 668.172 ms |
+| Valid complete-case checker range | 440.179–525.232 ms | 645.171–669.996 ms |
+
+The valid-case median added 205.756 ms. Across cases, added median checker time
+ranged from 133.950 to 387.826 ms. Final unpaired capture time was 269.093 ms for
+success and 253.576–425.901 ms for the six failures; pre-execution mismatch refusal
+took 44.651 ms. These are observed samples, not timing guarantees.
+
+Pre-commit review measurements remain unchanged in [`candidate.json`](https://assets.agee.dev/evidence/spec-lock/194d4c43c5c03e0c55afad6562e2fe18/candidate.json) and [`impact.json`](https://assets.agee.dev/evidence/spec-lock/7cb3f749ef226da284d662724942b409/impact.json)
+below this proof directory. The final replay is a separate sample in
+[`final-verifier/candidate.json`](https://assets.agee.dev/evidence/spec-lock/4d6565835b695ba3dc13116c52007eff/candidate.json), [`final-verifier/impact.json`](https://assets.agee.dev/evidence/spec-lock/82b4796ce3996e7306c8739f9e8185c1/impact.json) and
+[`final-verifier/independent-recomputation.json`](https://assets.agee.dev/evidence/spec-lock/a7041a9038ebf9a3129551cd30584fcb/independent-recomputation.json). The earlier valid-case median was
+732.644 ms, adding 270.228 ms. No favorable sample replaced a reviewed record.
 
 The baseline had no capture command. It used v1 hand-built records and a print
 command; candidate uses real capture/export plus an actual assertion expecting 14.
@@ -43,8 +79,8 @@ were reconstructed afterward from the same generator and recorded revisions.
 ## Review ownership
 
 Pre-commit Standards, Spec and Evidence review uses alternating Codex high and
-Opus 5.5 high under the owner's replacement rule. Exact commands and final receipts
-will be listed here. This CLI-only change has no Design or browser review stage.
+Opus 5.5 high under the owner's replacement rule. Commands and receipts appear below.
+This CLI-only change has no Design or browser review stage.
 
 ## Limits
 
@@ -52,7 +88,9 @@ Local source/session records are unauthenticated. Input hashes detect persistent
 changes but do not prevent writes or transient changes. No generic response hook,
 semantic red/oracle/golden enforcement, required policy or selected-repository
 activation is implemented. No production reliability or productivity estimate follows
-from this synthetic corpus. Token and cost measurements are unavailable, not zero.
+from this synthetic corpus. Whole-task token and cost measurements are unavailable, not zero.
+Approved local commands are trusted and must not daemonize. A child that escapes the
+process group may survive cleanup; inherited pipes cannot extend the recorder deadline.
 
 ## Review repairs before commit
 
@@ -107,6 +145,39 @@ Opus in [`portable-evidence-capture/review-2.md`](https://assets.agee.dev/eviden
 [`portable-evidence-capture/review-3.md`](https://assets.agee.dev/evidence/spec-lock/021f5036a9364ccd4417606482934c27/review-3.md). No separate project receipt or delivery
 review is configured for this local commit. No push or merge is authorized.
 
+## Independent final replay
+
+Author session `01a0e87d-1020-7d73-907e-4f3d1b1a6a92` and verifier session
+`01a0e8af-384a-7511-8200-68bada4c5c8c` are distinct local records. The verifier ran
+Node v22.22.0 and Git 2.54.0, Apple Git-157. All four commands exited 0 within their
+120-second limits. Elapsed times were 36.377 s for tests, 30.454 s for the walk,
+0.075 s for receipt writing and 0.076 s for receipt verification.
+
+The commands below ran in the clean verifier checkout. `$VERIFIER_OUTPUT` names
+an external scratch directory. Exact host paths are retained in the private execution
+record. Public metadata replaces only host paths with these aliases; candidate JSON,
+output streams, timings and hashes retain their original bytes.
+
+```sh
+env -u NODE_TEST_CONTEXT node --test --test-timeout=120000 test/portable-evidence.test.mjs
+env -u NODE_TEST_CONTEXT node test/portable-evidence-walk.mjs candidate "$VERIFIER_OUTPUT/candidate.json"
+node test/portable-evidence-receipt.mjs docs/proof/portable-evidence-capture/baseline.json "$VERIFIER_OUTPUT/candidate.json" "$VERIFIER_OUTPUT/impact.json" write
+node test/portable-evidence-receipt.mjs docs/proof/portable-evidence-capture/baseline.json "$VERIFIER_OUTPUT/candidate.json" "$VERIFIER_OUTPUT/impact.json"
+```
+
+Printed test totals: `tests 18`, `pass 18`, `fail 0`, `skipped 0`.
+Printed walk result: `saved 36 candidate checks and 7 capture records`.
+Printed receipt result:
+
+```json
+{"baseline":21,"candidate":0,"invalid_attempted":33,"valid_refused":0,"valid_attempted":3,"automatically_captured":7}
+```
+
+Execution metadata contains every before/after revision, clean status, approved input
+hash, argv, output hash and timestamp. The separate record-inspection ledger hashes
+the historical failure transcripts the verifier inspected. No final finding remained.
+After the walked source commit, this branch changes only files under `docs/proof/`.
+
 ## Evidence files
 
 These files were committed under `docs/proof/portable-evidence-capture/` and now live only on Cloudflare, behind sign-in. The commit named in `walked` is in the history before it was rebuilt without them; the code and tests here are the same.
@@ -122,6 +193,19 @@ These files were committed under `docs/proof/portable-evidence-capture/` and now
 | `complete-set.txt` | [link](https://assets.agee.dev/evidence/spec-lock/5248b38c0358408ff0168b82a4f87552/complete-set.txt) |
 | `disclosure.txt` | [link](https://assets.agee.dev/evidence/spec-lock/2b20f77d3a608b46318618bc083b9abf/disclosure.txt) |
 | `failed-export.txt` | [link](https://assets.agee.dev/evidence/spec-lock/7cf6ca96653d81e45d5a1eb145d610b8/failed-export.txt) |
+| `final-verifier/candidate.json` | [link](https://assets.agee.dev/evidence/spec-lock/4d6565835b695ba3dc13116c52007eff/candidate.json) |
+| `final-verifier/command-1.stderr` | [link](https://assets.agee.dev/evidence/spec-lock/6c1aa71647091bb07100de17cfdadbfd/command-1.stderr) |
+| `final-verifier/command-1.stdout` | [link](https://assets.agee.dev/evidence/spec-lock/f68ced95c94b1986e46d74f7af9f26ee/command-1.stdout) |
+| `final-verifier/command-2.stderr` | [link](https://assets.agee.dev/evidence/spec-lock/6f2cd09bfba9b196f4f617d1989872fd/command-2.stderr) |
+| `final-verifier/command-2.stdout` | [link](https://assets.agee.dev/evidence/spec-lock/419040246e3395dffab5dc3a5914e6b5/command-2.stdout) |
+| `final-verifier/command-3.stderr` | [link](https://assets.agee.dev/evidence/spec-lock/b03dd1f74ad1c7f780e2edb2442e5a0f/command-3.stderr) |
+| `final-verifier/command-3.stdout` | [link](https://assets.agee.dev/evidence/spec-lock/0392e7dcf97f68e15bb2c6319c2d7f77/command-3.stdout) |
+| `final-verifier/command-4.stderr` | [link](https://assets.agee.dev/evidence/spec-lock/ed4739d24bf662fb397f43a86710ecab/command-4.stderr) |
+| `final-verifier/command-4.stdout` | [link](https://assets.agee.dev/evidence/spec-lock/8c99ecd7085587086e74b8f396b85005/command-4.stdout) |
+| `final-verifier/execution-metadata.json` | [link](https://assets.agee.dev/evidence/spec-lock/dfcefdfabbaffba093099204de717c57/execution-metadata.json) |
+| `final-verifier/impact.json` | [link](https://assets.agee.dev/evidence/spec-lock/82b4796ce3996e7306c8739f9e8185c1/impact.json) |
+| `final-verifier/independent-recomputation.json` | [link](https://assets.agee.dev/evidence/spec-lock/a7041a9038ebf9a3129551cd30584fcb/independent-recomputation.json) |
+| `final-verifier/record-inspection.json` | [link](https://assets.agee.dev/evidence/spec-lock/1032f4cdc306e700def14669feef1673/record-inspection.json) |
 | `full-suite-cleanup-red.txt` | [link](https://assets.agee.dev/evidence/spec-lock/1bfe9aa7a70dcaf74d92e2f50ed34db1/full-suite-cleanup-red.txt) |
 | `full-suite-final.txt` | [link](https://assets.agee.dev/evidence/spec-lock/0949cd9d50a9c3f724248ea5e78ca671/full-suite-final.txt) |
 | `full-suite-invocation.json` | [link](https://assets.agee.dev/evidence/spec-lock/a9fd9fa5b5cd36d22f3e0131ffc00361/full-suite-invocation.json) |
