@@ -6,6 +6,7 @@
 //                                    the push adapter; reads git's pre-push lines on stdin
 // Exit 1 is a refusal with its reasons; exit 2 means the check could not run, which also refuses.
 // Every verdict ends with the checker line, so the git hook and the GitHub action show they ran the same code.
+import { ownerPolicy } from '../lib/policy.mjs'
 import { readFileSync } from 'node:fs'
 import { capture, exportCapture, identity } from '../lib/portable.mjs'
 import { checkRange, prePush, referenceTransaction } from '../lib/lock.mjs'
@@ -17,27 +18,34 @@ function checker() {
 
 const [cmd, ...args] = process.argv.slice(2)
 try {
-  if (cmd === 'capture' && args.length >= 2) {
+  if(cmd==='policy' && args.length===0) {
+    process.stdout.write(JSON.stringify(ownerPolicy())+`\n${checker()}\n`)
+  } else if (cmd === 'capture' && args.length >= 2) {
     if(args.length > 2 && args[2] !== '--') throw Error('capture requires -- before explicit argv')
     const result = await capture(args[0],args[1],args.length>2 ? args.slice(3) : undefined)
     process.stdout.write(`capture ${result.record.run.id}: ${result.record.run.outcome} exit=${result.record.run.exit}\n`)
     process.exitCode = result.success ? 0 : 1
   } else if (cmd === 'export' && args.length === 3) {
     const manifest = exportCapture(...args)
-    process.stdout.write(`exported ${manifest.runs.length} capture; candidate only\n`)
+    process.stdout.write(`exported ${manifest.runs.length} capture; policy ${manifest.policy}; actor provenance unauthenticated\n`)
   } else if (['check','check-candidate','check-semantic'].includes(cmd) && args.length === 2) {
+    const policy = ownerPolicy()
+    if(policy.mode==='selected') process.stdout.write(`spec-lock policy ${policy.id}; ${policy.active ? policy.evidence : 'unselected, not checked'}; actor provenance unauthenticated\n`)
     const candidate = cmd !== 'check' ? {checked:0,semantic:cmd==='check-semantic'} : false
-    const faults = checkRange(args[0], args[1], [], candidate)
+    const faults = checkRange(args[0], args[1], [], candidate, policy)
     if (faults.length) {
       process.stdout.write(`spec-lock: refused ${args[0]}..${args[1]}\n${faults.map((f) => `- ${f}`).join('\n')}\n${checker()}\n`)
       process.exit(1)
     }
-    if(candidate) process.stdout.write(`${candidate.checked ? 'candidate binding records checked' : 'no candidate binding records checked'} (${candidate.checked}); actor provenance unauthenticated; ${candidate.semantic?`${candidate.checked?'':'no '}semantic review records checked; required policy deferred`:'semantic evidence and required policy deferred'}\n`)
+    if(candidate && !policy.required) process.stdout.write(`${candidate.checked ? 'candidate binding records checked' : 'no candidate binding records checked'} (${candidate.checked}); actor provenance unauthenticated; ${candidate.semantic?`${candidate.checked?'':'no '}semantic review records checked; required policy deferred`:'semantic evidence and required policy deferred'}\n`)
     process.stdout.write(`spec-lock: ok\n${checker()}\n`)
   } else if ((cmd === 'reference-transaction' || cmd === 'pre-push') && args.length >= 2) {
     const [arg, repo, ...guarded] = args
+    const policy=ownerPolicy()
+    if(policy.mode==='selected' && arg!=='committed') process.stderr.write(`spec-lock policy ${policy.id}; ${policy.active ? policy.evidence : 'unselected, not checked'}; actor provenance unauthenticated\n${checker()}\n`)
+    if(policy.mode==='selected' && !policy.active) process.exit(0)
     const input = readFileSync(0, 'utf8')
-    const out = cmd === 'pre-push' ? prePush(arg, input, guarded) : referenceTransaction(arg, input, repo, guarded)
+    const out = cmd === 'pre-push' ? prePush(arg, input, guarded, policy) : referenceTransaction(arg, input, repo, guarded, policy)
     if (out.length) {
       process.stderr.write(out.join('\n') + `\n${checker()}\n`)
       process.exit(1)
@@ -47,6 +55,6 @@ try {
     process.exit(2)
   }
 } catch (e) {
-  process.stderr.write(`spec-lock: ${e.message.split('\n')[0]}\n`)
+  process.stderr.write(`spec-lock: ${e.message.split('\n')[0]}\n${checker()}\n`)
   process.exit(2)
 }

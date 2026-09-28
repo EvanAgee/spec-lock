@@ -1,5 +1,10 @@
 // Frozen logical cases; baseline uses comparable v1 records, never a fabricated capture.
-import { readFileSync, writeFileSync } from 'node:fs'
+import assert from 'node:assert/strict'
+import {spawnSync} from 'node:child_process'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {summarize as policySummary} from './policy-receipt.mjs'
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { fixture, attach, SPEC, OUT, capture, approval, exported } from './portable-fixture.mjs'
@@ -14,7 +19,21 @@ export function editCase(m, id, f) {
   if (id === 'zero-test' || id === 'skipped-test') m.judges[0].observation = {kind:'test', tests:[], executed:0, skipped:id === 'skipped-test' ? 1 : 0, assertion:'double(7) equals 14', expected:'14', observed:'no tests'}
   if (id === 'unsupported') m.judges[0].verdict = 'unsupported'
 }
-if (process.argv[1] === new URL(import.meta.url).pathname && process.argv[2] === 'semantic') {
+if (process.argv[1] === new URL(import.meta.url).pathname && (!process.argv[2] || process.argv[2]==='all')) {
+  const output=process.argv[3]||mkdtempSync(join(tmpdir(),'spec-lock-all-walk-'));mkdirSync(output,{recursive:true})
+  for(const stage of ['capture','semantic','policy']) {
+    const file=join(output,`${stage}.json`)
+    const r=spawnSync(process.execPath,[process.argv[1],...(stage==='capture'?[]:[stage]),'candidate',file],{encoding:'utf8',timeout:240000})
+    assert.equal(r.status,0,r.stderr);process.stdout.write(r.stdout)
+    const raw=JSON.parse(readFileSync(file))
+    for(const run of raw.runs)assert.equal(run.code===0,run.valid,`${stage} ${run.case} ${run.adapter||''}`)
+    if(stage==='policy'){const result=policySummary(raw);assert.equal(result.unsupported,0);assert.equal(result.unselected_blocked,0)}
+  }
+  console.log(`AC1 through AC10 offline walks passed; records: ${output}`)
+} else if (process.argv[1] === new URL(import.meta.url).pathname && process.argv[2] === 'policy') {
+  process.argv.splice(2,1)
+  await import('./policy-walk.mjs')
+} else if (process.argv[1] === new URL(import.meta.url).pathname && process.argv[2] === 'semantic') {
   process.argv.splice(2,1)
   await import('./semantic-walk.mjs')
 } else if (process.argv[1] === new URL(import.meta.url).pathname) {

@@ -180,7 +180,7 @@ After the walked source commit, this branch changes only files under `docs/proof
 
 ## Evidence files
 
-These files were committed under `docs/proof/portable-evidence-capture/` and now live only on Cloudflare, behind sign-in. The commit named in `walked` is in the history before it was rebuilt without them; the code and tests here are the same.
+These files were committed under `docs/proof/portable-evidence-capture/` and now live only on Cloudflare, behind sign-in. The commit named in `walked` is in the history before it was rebuilt without them; the code and tests here are the same, except that `test/policy-evidence.test.mjs` reads its baseline fixture from `test/policy-baseline.json`.
 
 | File | Link |
 |---|---|

@@ -22,7 +22,7 @@ Three moves need no proof:
 
 ## Evidence bindings
 
-A proof may also name an evidence manifest, which binds its acceptance claims to a recorded run of a command on one reviewed commit. The binding is optional: a proof without an `evidence:` field is judged exactly as above.
+A proof may also name an evidence manifest, which binds its acceptance claims to a recorded run of a command on one reviewed commit. Under legacy policy the binding is optional: a proof without an `evidence:` field is judged exactly as above. Selected semantic policy below requires version 2 for covered code.
 
 ```markdown
 ---
@@ -107,7 +107,7 @@ Every checked move of a guarded branch appends one tab-separated line to `$SPEC_
 spec-lock check <old> <new>   # exit 0 when the move may land, 1 with the reasons when it may not, 2 when it cannot be checked
 ```
 
-`bin/spec-lock-hook` is the git adapter. `register(configFile)` in `lib/lock.mjs` adds it to a git config file as two config-defined hooks, and changes nothing else there:
+`bin/spec-lock-hook` is the git adapter. `register(configFile, binDir, mode)` in `lib/lock.mjs` adds it to a git config file as two config-defined hooks, and changes nothing else there:
 
 - `spec-lock-reference-transaction` refuses in the `prepared` state, so merges, fast-forwards, resets, commits and `update-ref` on a guarded branch all go through it, and it keeps old tips in the `committed` state.
 - `spec-lock-pre-push` judges each push to a guarded remote branch from the tip the remote advertised to the pushed commit. A force push, a tip that is not a descendant, and another branch pushed to main (`git push origin feature:main`) are checked like a local landing. One refused ref stops the whole push. A branch new to the remote is compared with the empty tree, less what a guarded branch in the local repository already holds. A push whose remote tip is not in the local repository cannot be checked and is refused; fetch first.
@@ -194,10 +194,11 @@ Every test builds a synthetic repository in a temp directory with a scratch glob
 
 ### Candidate version 2 capture
 
-Version 2 is an unfinished policy. It can record and check command, revision, output,
-claim and session bindings. Red/oracle/golden semantics, repository selection and
-workflow integration remain separate work. The regular checker and Git adapters
-refuse version 2; no hook or configuration is activated by these commands.
+Version 2 records command, revision, output, claim and session bindings. Semantic
+checks add reviewed failures and expected answers. Selected owner policy can require
+these records through ordinary checks and Git adapters. Legacy policy still refuses
+version 2. Capture and export activate no hook or configuration; workflow consumer
+integration and real rollout remain separate work.
 
 ```sh
 spec-lock capture /scratch/approval.json /scratch/run -- node test/value.mjs
@@ -232,8 +233,8 @@ prevent test writes or intercept claims in chat.
 
 `spec-lock check-semantic <old> <new>` adds AC5–AC7 record checks to the existing
 `check-candidate` bindings. It requires a verifier-approved semantic plan on every
-claimed command approval. This remains an opt-in candidate CLI. Ordinary checks and
-Git adapters still refuse version 2; repository policy and activation are later work.
+claimed command approval. Without selected owner policy this is an opt-in candidate CLI. Selected semantic
+policy applies the same stronger checks through ordinary checks and Git adapters.
 
 The approval's `semantic` object has `version: 1`, `tests`, `criteria`, `goldens`, and
 `golden_reviews`. The selected test paths must have identical bytes in red and green. The exact command and working
@@ -268,3 +269,47 @@ and `test/semantic-evidence.test.mjs`. Run the offline semantic walk with
 It saves exact synthetic inputs before cleanup. The prior checker uses the same
 logical corpus through its binding-only command, with a documented assembly adapter
 for the then-new semantic fields. Runtime comparisons cover checker calls only.
+
+### Selected repository policy
+
+A selected rollout file separates inventory from selection:
+
+```text
+mode selected
+evidence semantic-v2
+repo /absolute/inventory-repository
+select /absolute/selected-repository-or-linked-worktree
+integration integration/candidate
+```
+
+`spec-lock-rollout preview <file>` prints effective common repositories, guarded
+branches, evidence requirement, policy/checker identity and exceptions without writing.
+After the owner authorizes activation, `spec-lock-rollout activate <file>` prints the
+plan before registering selected hooks. An inventory entry never selects a repository.
+The central owner file stores canonical common Git directories, so linked worktrees
+share selection. `evidence legacy` explicitly retains legacy evidence rules within
+selected scope. Existing legacy installations keep their opt-out behavior.
+
+The hook registration retains a selected marker. Removing the owner configuration or
+replacing it with a legacy file then refuses instead of weakening the requirement.
+Malformed selection fails closed because scope cannot be established. Unselected
+repositories pass without requiring Node. The owner file remains under the operator's
+home; candidate repository files and local policy keys cannot replace it.
+
+Selected semantic export binds the manifest's `policy` to `selected-v1:<sha256>` of
+exact central bytes. The CLI, local landing and pre-push require the same policy,
+version 2, complete claims and semantic reviews. Re-export after an owner policy edit.
+The checker fingerprint includes the shell scope adapter. Run `spec-lock policy` to
+inspect the effective local policy. Candidate commands cannot lower an active owner's
+requirement. No remote workflow or GitHub repository is changed by this increment.
+
+Ordinary documentation, first-commit and known landed/pulled-content exceptions
+remain. Markdown agent instructions are not newly governed. The owner can still
+bypass or modify same-user hooks and policy; this is not a protected execution boundary.
+Before a real pilot, review those exceptions and its governed instruction paths.
+
+`node test/portable-evidence-walk.mjs` runs capture, semantic and policy walks offline
+and prints the temporary records directory. `all <directory>` saves to an explicit
+output directory. `policy candidate <output.json>` runs only the 57 policy attempts.
+The [policy specification](docs/specs/portable-evidence-policy.md) and its proof name
+the measured scope and remaining limits.

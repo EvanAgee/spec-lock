@@ -26,6 +26,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writ
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {selectedPolicy,commonRepository,ownerPolicy} from '../lib/policy.mjs'
+import {identity as checkerIdentity} from '../lib/portable.mjs'
 import { HOOK, PUSH_HOOK, logFile, register } from '../lib/lock.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -97,7 +99,48 @@ function baselines(repo, integration) {
   return lines(git(repo, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads').stdout).map((l) => l.split(' ')).filter(([ref]) => names.has(ref.slice('refs/heads/'.length)))
 }
 
+function selectedPlan(file) {
+  const inventory=[],selected=[],lanes=[],settings=[]
+  for(const raw of readFileSync(file,'utf8').split('\n')) {
+    const line=raw.trim();if(!line||line.startsWith('#'))continue
+    const m=/^(\S+)\s+(.+)$/.exec(line)
+    if(!m)throw Error('malformed rollout entry')
+    const [,key,value]=m
+    if(key==='repo'||key==='select') {
+      if(!isAbsolute(value))throw Error(`${key} requires an absolute repository path`)
+      const common=commonRepository(value)
+      if(key==='repo')inventory.push(common);else selected.push(common)
+    } else if(key==='lane') {
+      if(!/^\S+\s+\S+$/.test(value))throw Error('malformed lane')
+      lanes.push(value.split(/\s+/))
+    } else if(['mode','evidence','integration'].includes(key)) settings.push(`${key} ${value}`)
+    else throw Error(`unknown selected rollout entry ${key}`)
+  }
+  const scope=[...new Set(selected)]
+  const text=[...settings.filter(l=>!l.startsWith('integration ')),...scope.map(p=>`select ${p}`),...settings.filter(l=>l.startsWith('integration '))].join('\n')+'\n'
+  const policy=selectedPolicy(text)
+  const plan={...policy,inventory:[...new Set(inventory)],lanes,checker:checkerIdentity(),guarded:scope.map(repo=>({repo,branches:['main','master',...policy.integration,...lines(git(repo,'for-each-ref','--format=%(symref:lstrip=3)','refs/remotes/*/HEAD').stdout)]})),exceptions:['ordinary documentation','first commit','previously landed or pulled content','owner hook bypass']}
+  return {plan,text}
+}
+function activateSelected(file) {
+  const {plan,text}=selectedPlan(file)
+  process.stdout.write(JSON.stringify(plan,null,2)+'\n')
+  const faults=plan.lanes.filter(([,state])=>state!=='landed').map(([id,state])=>`lane ${id} is ${state}; activate once it has landed`)
+  for(const repo of plan.selected)faults.push(...overrides(repo))
+  const central=join(homedir(),'.config','spec-lock','config')
+  if(existsSync(central)&&readFileSync(central,'utf8')!==text)faults.push(`${central} differs from the selected plan; only its owner edits it`)
+  if(faults.length)stop(faults)
+  if(!existsSync(central)){mkdirSync(dirname(central),{recursive:true});writeFileSync(central,text)}
+  register(undefined,join(ROOT,'bin'),'selected')
+  const recordFile=join(dirname(logFile()),'activation')
+  mkdirSync(dirname(recordFile),{recursive:true})
+  appendFileSync(recordFile,JSON.stringify({at:new Date().toISOString(),event:'activated-selected',...plan})+'\n')
+  const unrun=plan.selected.flatMap(missing);if(unrun.length)stop(unrun)
+}
+
 function activate(file) {
+  if(/^\s*(?:mode|evidence|select)\s/m.test(readFileSync(file,'utf8')))return activateSelected(file)
+  if(ownerPolicy().mode==='selected')throw Error('legacy activation cannot replace selected registration; use a selected rollout')
   const lanes = []
   const repos = []
   const wanted = []
@@ -298,11 +341,12 @@ function options(args) {
   return bad ? null : o
 }
 
-const USAGE = 'usage: spec-lock-rollout activate <rollout file>\n       spec-lock-rollout doctor <repository>...\n       spec-lock-rollout workflow [--default <branch>] [--integration <branch>]... [--action <sha>]\n       spec-lock-rollout enroll <owner/repo> [--integration <branch>]... [--action <sha>] [--apply]\n'
+const USAGE = 'usage: spec-lock-rollout preview <selected rollout file>\n       spec-lock-rollout activate <rollout file>\n       spec-lock-rollout doctor <repository>...\n       spec-lock-rollout workflow [--default <branch>] [--integration <branch>]... [--action <sha>]\n       spec-lock-rollout enroll <owner/repo> [--integration <branch>]... [--action <sha>] [--apply]\n'
 const [cmd, ...args] = process.argv.slice(2)
 try {
   const o = (cmd === 'workflow' || cmd === 'enroll') && options(args)
-  if (cmd === 'activate' && args.length === 1) activate(args[0])
+  if(cmd==='preview' && args.length===1) process.stdout.write(JSON.stringify(selectedPlan(args[0]).plan,null,2)+'\n')
+  else if (cmd === 'activate' && args.length === 1) activate(args[0])
   else if (cmd === 'doctor' && args.length) doctor(args)
   else if (cmd === 'workflow' && o && !o.rest.length && !o.apply) process.stdout.write(workflow(o.action, o.default ?? 'main', o.integration))
   else if (cmd === 'enroll' && o && o.rest.length === 1 && /^[\w.-]+\/[\w.-]+$/.test(o.rest[0]) && !o.default) enroll(o.rest[0], o.integration, o.action, o.apply)

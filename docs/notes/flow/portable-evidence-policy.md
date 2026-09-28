@@ -1,0 +1,3 @@
+| Ticket | Wall time from implementation to merge | Review findings | Bugs found by live proof after review | Tokens/cost |
+|---|---|---|---|---|
+| Enforce complete evidence in selected repositories. Requires semantic records on selected local Git paths and leaves other repositories untouched. | Local only; no merge authorized, time-to-merge unavailable | Four alternating high-effort reviews completed; all observed defects repaired, limits recorded in proof | Regression walks reproduced case alias, parser, registration and raw-byte fingerprint failures; fixes pass | Whole-task tokens/cost unavailable; Opus rounds 2 and 4 partial provider cost $5.5318286 |

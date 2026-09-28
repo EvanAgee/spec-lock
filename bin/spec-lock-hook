@@ -2,12 +2,15 @@
 # Git hook adapter for spec-lock. Git runs it as: spec-lock-hook <event> <hook args...>
 # The events are reference-transaction, for local branch moves, and pre-push, for the remote branch
 # a push would move. It decides which updates are checked: the guarded branches of a repository that
-# is not on the opt-out list. Everything else passes untouched, with or without Node. It uses only
+# is selected, or is not opted out under legacy mode. Valid scope leaves other updates untouched.
+# Missing or malformed selected settings refuse all head updates before filtering. It uses only
 # shell builtins and git, because git may run it with a PATH that holds neither Node nor the usual tools.
 # It fails closed: a missing Node, a crashed checker or an unreadable object refuses a guarded update.
 set -f
 event=$1
 shift
+selected_registration=0
+[ "$1" = --selected ] && selected_registration=1 && shift
 case $event in
 reference-transaction)
   # prepared can still stop an update; committed keeps the tip a landing left behind.
@@ -26,13 +29,83 @@ while read -r line; do input="$input$line
 "; done
 case $input in *" refs/heads/"*) ;; *) exit 0 ;; esac
 
-# The owner's central file: "integration <branch>" and "opt-out <absolute repository path>" lines.
+# The owner's central file: selected mode/evidence/select entries, integration branches,
+# or legacy integration/opt-out entries.
 # Only HOME places it: an environment variable of its own would let any process opt a repository out.
 config=$HOME/.config/spec-lock/config
 listed() {
   [ -r "$config" ] || return 0
-  while read -r key value; do [ "$key" = "$1" ] && printf '%s\n' "$value"; done < "$config"
+  while read -r key value || [ -n "$key$value" ]; do [ "$key" = "$1" ] && printf '%s\n' "$value"; done < "$config"
 }
+
+policy_error() {
+  [ "$state" = committed ] && exit 0
+  echo "spec-lock: required policy is missing or malformed; refusing" >&2
+  if command -v node >/dev/null 2>&1; then node "${0%/*}/spec-lock" policy >&2; fi
+  exit 1
+}
+
+# Shell variables discard NUL bytes. Hash an exact line round-trip before parsing;
+# no object is written, and no Node or external text utility is needed.
+if [ -r "$config" ]; then
+  file_hash=$(git hash-object --no-filters "$config") || policy_error
+  text_hash=$({ while IFS= read -r raw; do printf '%s\n' "$raw"; done; printf '%s' "$raw"; } < "$config" | git hash-object --stdin) || policy_error
+  [ "$file_hash" = "$text_hash" ] || policy_error
+fi
+
+# Selected registrations never fall back when the owner file disappears. Validate scope
+# using only shell builtins and Git, so unselected repositories need no Node.
+selected_mode=$selected_registration
+if [ -r "$config" ]; then
+  while read -r key value || [ -n "$key$value" ]; do
+    case $key in mode|select|evidence) selected_mode=1 ;; esac
+  done < "$config"
+fi
+
+if [ "$selected_mode" = 1 ]; then
+  [ -r "$config" ] || policy_error
+  common=$(git rev-parse --path-format=absolute --git-common-dir) && common=$(cd "$common" && pwd -P) || policy_error
+  mode_seen=0
+  evidence_seen=0
+  chosen=0
+  selections=
+  carriage_return=$(printf '\r')
+  integrations=
+  while read -r key value || [ -n "$key$value" ]; do
+    case "$key$value" in *"$carriage_return"*) policy_error ;; esac
+    case $key in
+      ''|'#'*) continue ;;
+      mode) [ "$mode_seen" = 0 ] && [ "$value" = selected ] || policy_error; mode_seen=1 ;;
+      evidence) [ "$evidence_seen" = 0 ] || policy_error; case $value in semantic-v2|legacy) ;; *) policy_error ;; esac; evidence_seen=1 ;;
+      select)
+        case $value in /*) ;; *) policy_error ;; esac
+        canonical=$(cd "$value" 2>/dev/null && pwd -P) || policy_error
+        [ "$canonical" = "$value" ] || policy_error
+        git_common=$(unset GIT_COMMON_DIR GIT_WORK_TREE; git --git-dir="$value" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || policy_error
+        git_common=$(cd "$git_common" && pwd -P) || policy_error
+        [ "$git_common" -ef "$value" ] || policy_error
+        previous_ifs=$IFS
+        IFS='
+'
+        for selected in $selections; do [ "$selected" -ef "$value" ] && policy_error; done
+        IFS=$previous_ifs
+        selections="$selections$value
+"
+        [ "$value" -ef "$common" ] && chosen=1 ;;
+      integration)
+        git check-ref-format "refs/heads/$value" >/dev/null 2>&1 || policy_error
+        case "
+$integrations" in *"
+$value
+"*) policy_error ;; esac
+        integrations="$integrations$value
+" ;;
+      *) policy_error ;;
+    esac
+  done < "$config"
+  [ "$mode_seen" = 1 ] && [ "$evidence_seen" = 1 ] || policy_error
+  [ "$chosen" = 1 ] || exit 0
+fi
 
 # Guarded: every remote's default branch, main and master, and the listed integration branches.
 guarded="main

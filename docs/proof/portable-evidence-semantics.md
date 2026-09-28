@@ -142,7 +142,7 @@ The parent separately checked command exits, output hashes, exact clean revision
 
 ## Evidence files
 
-These files were committed under `docs/proof/portable-evidence-semantics/` and now live only on Cloudflare, behind sign-in. The commit named in `walked` is in the history before it was rebuilt without them; the code and tests here are the same.
+These files were committed under `docs/proof/portable-evidence-semantics/` and now live only on Cloudflare, behind sign-in. The commit named in `walked` is in the history before it was rebuilt without them; the code and tests here are the same, except that `test/policy-evidence.test.mjs` reads its baseline fixture from `test/policy-baseline.json`.
 
 | File | Link |
 |---|---|

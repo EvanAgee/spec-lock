@@ -1,0 +1,1 @@
+{"stage":"policy","baseline":"6a0d7e5f3c306357f07a4d1fe6bba343fcc48375","repeats":3,"cases":[{"id":"missing","valid":false},{"id":"legacy","valid":false},{"id":"invalid","valid":false},{"id":"valid","valid":true}],"adapters":["cli","merge","push","linked"],"unselected":["cli","merge","push"]}

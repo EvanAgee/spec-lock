@@ -18,18 +18,18 @@ These seams are selected by the parent task. No real hooks or accounts are chang
 
 | AC | Requirement (EARS) | Red test, fixture, and the mutation that proves it red | Observable on the real surface | Judge |
 |---|---|---|---|---|
-| AC1 | When a covered landing lacks version 2 evidence, the checker shall refuse it without falling back to optional or version 1 evidence. | `test/portable-evidence.test.mjs`, `required-version`: two-criterion spec, code change, complete prose proof, first no manifest then version 1. Baseline admits those proofs. Mutate required-policy enforcement to legacy and prove refusal assertions fail; valid version 2 is the positive control. | S1: `spec-lock check` exits 1, names required evidence/version, and prints effective policy and checker identity. | `required-version` CLI fixture. |
-| AC9 | When selected-repositories mode is used, the hook shall enforce required evidence only in explicitly selected repositories and their linked worktrees, with effective scope shown before activation. | `test/portable-evidence.test.mjs`, `selected-scope`: scratch repositories A and B plus A's linked worktree; select A, inventory B only. Current hook covers both. Mutate selection into legacy opt-out behavior and prove B's untouched assertion fails; malformed required policy must refuse A. | S2: real scratch `git merge --ff-only` refuses A and its worktree's bad candidate; B remains unaffected; rollout preview lists only A as selected. | `selected-scope` Git fixture. |
+| AC1 | When a covered landing lacks version 2 evidence, the checker shall refuse it without falling back to optional or version 1 evidence. | `test/policy-evidence.test.mjs`, `required-version`: two-criterion spec, code change, complete prose proof, first no manifest then version 1. Baseline admits those proofs. Mutate required-policy enforcement to legacy and prove refusal assertions fail; valid version 2 is the positive control. | S1: `spec-lock check` exits 1, names required evidence/version, and prints effective policy and checker identity. | `required-version` CLI fixture. |
+| AC9 | When selected-repositories mode is used, the hook shall enforce required evidence only in explicitly selected repositories and their linked worktrees, with effective scope shown before activation. | `test/policy-evidence.test.mjs`, `selected-scope`: scratch repositories A and B plus A's linked worktree; select A, inventory B only. Current hook covers both. Mutate selection into legacy opt-out behavior and prove B's untouched assertion fails; malformed required policy must refuse A. | S2: real scratch `git merge --ff-only` refuses A and its worktree's bad candidate; B remains unaffected; rollout preview lists only A as selected. | `selected-scope` Git fixture. |
 | AC10 | When version 2 policy is used through the local landing and push paths, the adapters shall produce the same required-evidence verdict while legacy installations retain version 1 behavior. | Same test file, `adapter-policy`: same bad/good candidates through CLI, reference transaction and pre-push to a scratch bare remote; remote's own lock disabled. Legacy fixture still accepts optional evidence. Mutate one adapter to drop required policy and prove the mismatch fails. | S2: both covered Git paths refuse the bad candidate without moving their target, then accept the good candidate with the same effective checker/policy identity. | `adapter-policy` Git fixture. |
 | AC14 | When selected-repository enforcement is verified, the verification process shall report paired observed Git outcomes and runtime for selected, unselected and linked-worktree cases, counting unintended blocks separately. | `test/portable-evidence-walk.mjs` runs the agreed bad/good candidates through actual scratch Git operations on prerequisite and candidate revisions. Baseline has no selected-only required-evidence route. Mutate the unselected-repository outcome in a throwaway summary and prove receipt review detects the false scope claim. | S2: the proof reports guarded bad landings refused, good landings accepted, unselected operations wrongly blocked, linked-worktree coverage and added check time, with before/after tips. | Independent Evidence review recomputes the scope impact table from saved raw Git observations. |
 
 ## Implementation contract
 
-The owner file remains `$HOME/.config/spec-lock/config`. Selected mode has exactly
-one `mode selected` and one `evidence semantic-v2` or `evidence legacy` line, followed
-by `select <canonical absolute common Git directory>` and optional `integration`
-lines. Selection and evidence requirements are explicit separate settings. Duplicate,
-unknown or malformed selected settings refuse. `repo` entries in a rollout file are
+The owner file remains `$HOME/.config/spec-lock/config`. Selected mode uses LF line endings and has exactly
+one `mode selected` and one `evidence semantic-v2` or `evidence legacy` line, plus
+`select <canonical absolute common Git directory>` and optional `integration`
+lines, in any order. Selection and evidence requirements are explicit separate settings. Duplicate,
+unknown or malformed selected settings refuse. NUL bytes refuse in every owner file. `repo` entries in a rollout file are
 inventory only. `select <repository or linked worktree path>` in rollout resolves the
 common Git directory, deduplicates scope, and never implicitly selects inventory.
 
@@ -38,12 +38,15 @@ repositories, inventory, guarded branches, checker identity, policy identity and
 existing exceptions, without writing settings. Selected activation prints the same
 plan before writing scratch central configuration and registering hooks. Hook command
 registration carries a persistent `--selected` marker. Missing or downgraded central
-policy then refuses instead of reverting to legacy. Existing legacy registrations
+policy then refuses instead of reverting to legacy. A legacy activation refuses
+when selected mode or registration already exists; it cannot erase that marker. Existing legacy registrations
 and version 1 evidence remain unchanged. This task tests activation only in scratch.
 
 Both Git adapters and `spec-lock check` resolve policy from the owner configuration,
 never candidate files or repository-local policy keys. Selected policy identity is a
-SHA-256 of exact central bytes, with a versioned prefix. Export binds version 2 to
+SHA-256 of exact central bytes, including undecoded comment bytes, with a versioned
+prefix. Parsing splits only on LF; other Unicode line separators may occur inside
+Git-valid branch names. Export binds version 2 to
 that identity when selected semantic policy applies; changing policy requires export
 again. Candidate commands cannot weaken an active owner requirement. The checker
 still only reads committed objects; it executes no recorded commands. Fingerprints
@@ -53,11 +56,16 @@ Under required semantic policy, covered code needs version 2 plus all capture an
 semantic checks. Missing, version 1, invalid version 2 and wrong-policy records refuse.
 The CLI, local landing and pre-push print the same effective policy/checker identity
 on their observed covered verdicts. Unselected repositories pass untouched. Linked
-worktrees share common-directory selection. An unselected repository needs no Node
-for its hook to pass. Malformed scope that prevents knowing selection fails closed.
+worktrees share common-directory selection. Directory device/inode identity keeps
+case aliases selected on case-insensitive filesystems; duplicate aliases refuse. An unselected repository needs no Node
+for its hook to pass. Malformed scope that prevents knowing selection fails closed. This refusal precedes
+branch filtering: missing or malformed selected settings block every head update,
+including feature commits in unselected repositories and pack-refs deletions during
+garbage collection. AC14 happy-policy counts do not measure this recovery condition.
 
 Retain documentation, initial-commit and previously landed/pulled-content exceptions.
-Ordinary documentation-only landings need no new evidence. Markdown instruction paths
+In a code landing, every added or edited top-level proof must carry version 2, even
+when another proof already covers the code. Ordinary documentation-only landings need no new evidence; attached version 1 proofs retain legacy validation, and attached version 2 records still receive semantic validation. Markdown instruction paths
 are not newly governed. Existing proof validation and known-tip behavior remain, and
 these exceptions are listed in preview and proof. Same-user hook bypass, editable
 policy and mutable trusted remote refs remain explicit limits.
@@ -94,6 +102,26 @@ Git enforcement costs local checking time, which AC14 measures. It still permits
 same-user bypass. [Git common directories](https://git-scm.com/docs/git-rev-parse)
 identify linked worktrees together; storing checkout paths would need duplicate
 selection and could leave a linked checkout uncovered.
+
+For case aliases, native realpath normalization and directory device/inode comparison
+are both dependency-free approaches in [Node filesystem APIs](https://nodejs.org/api/fs.html).
+Use directory identity, matching the shell file-identity test; spelling is not a reliable
+identity on case-insensitive disks. Global hook lookup explicitly follows
+[Git configuration includes](https://git-scm.com/docs/git-config#Documentation/git-config.txt---includes),
+so included selected registrations retain the missing-policy refusal.
+
+For binary policy bytes, requiring Node to inspect every repository would violate
+the no-Node unselected contract. Instead, compare the original file with the shell
+line reader output using [Git hash-object](https://git-scm.com/docs/git-hash-object),
+without filters or object writes. This costs two local Git invocations and detects
+bytes the shell cannot preserve. The paired operation measurements include this cost.
+
+For byte identity, decoding then hashing text can replace invalid UTF-8 sequences.
+[Node Hash.update](https://nodejs.org/api/crypto.html#hashupdatedata-inputencoding)
+accepts the raw buffer, which preserves the required identity without new dependencies.
+Rejecting all non-UTF-8 text would require another shell validator and a stricter owner
+format. Keep raw-byte hashing and use the [dotAll flag](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp/dotAll)
+only inside LF-delimited value parsing.
 
 ## Non-goals
 
