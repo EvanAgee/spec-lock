@@ -3,232 +3,185 @@ tags: [portable-evidence, policy, cli, selected-repositories]
 date: 2026-09-28
 issue: local-selected-repository-enforcement
 spec: docs/specs/portable-evidence-policy.md
-walked: pending
+walked: 93f9870f2f981ac72767a1176fbbc778739c297e
 ---
 # Enforce complete evidence in selected repositories
 
-Local implementation and four review rounds are complete. Observed defects are
-repaired. Final commit replay and proof-only completion remain pending. No production activation, publication,
-real repository enrollment or remote workflow update is authorized or performed.
+Selected local Git operations now require complete version 2 capture and semantic
+records. Inventory alone never selects a repository. Linked worktrees share their
+common repository's selection. This is a local, unmerged implementation. No production
+activation, publication, push or remote workflow change occurred.
+
+Source commit: `93f9870f2f981ac72767a1176fbbc778739c297e`. Comparison prerequisite:
+`6a0d7e5f3c306357f07a4d1fe6bba343fcc48375`. Only proof files follow the source commit.
+The committed spec carries AC1, AC9, AC10 and AC14. Design: no; this CLI change has no
+browser, Design-review or video stage.
 
 ## What I walked
 
-| AC | Assertion and expected result | Observed evidence |
+| AC | Assertion and independent expected source | Observed result |
 |---|---|---|
-| AC1 | Required-version CLI cases require missing and version 1 evidence to exit 1; a complete captured version 2 record exits 0. The saved policy spec supplies this rule. | Observed red accepted missing evidence, actual 0 versus expected 1. Candidate CLI refuses missing/legacy/invalid records and accepts complete evidence. Candidate commands and local repository settings cannot lower the owner requirement. |
-| AC9 | Real merge/push attempts outside selection must exit 0, including no-Node hooks. Selected repository and linked worktree attempts must share scope. Inventory alone cannot select. | Initial candidate walk has 0/9 unintended blocks; selected linked-worktree cases share main-repository verdicts. Preview and scratch activation tests pass. Missing, empty, downgraded and malformed policy refuse after selected registration. |
-| AC10 | CLI, reference transaction and pre-push apply the same required policy. Bad Git attempts leave their target unchanged; complete evidence moves it. Legacy prose/version 1 and documentation exemptions remain. | Adapter regression initially allowed a bad merge. Candidate Git tests refuse bad records with unchanged target and accept good records. Legacy tests pass. An extra prose documentation-proof test exposed an overstrict requirement; its repaired regression passes. |
-| AC14 | Frozen case list has 57 attempts: selected 4 cases x 4 adapters x 3 repeats, plus unselected 3 adapters x 3 repeats. Recompute raw exits, before/after tips, medians/ranges and denominators. | Baseline accepts 24/24 applicable invalid attempts, blocks 9/9 unselected attempts and has 24 unsupported v2 attempts. Initial candidate accepts 0/36 invalid, refuses 0/12 valid and blocks 0/9 unselected attempts. Receipt tampering tests reject altered movement and missing counts. |
+| AC1 | The saved spec requires missing/v1/invalid records and wrong owner-policy bindings to refuse; complete captured v2 must pass. `required-version`, owner-edit and fingerprint tests invoke the real CLI and Git adapters. | Supported. Missing, legacy, invalid and wrong-policy records refuse; complete captured evidence passes. Exact-byte fingerprint and stale-owner tests pass in the 66-test replay. |
+| AC9 | Explicit selected scope must cover the common repository and linked worktrees. Distinct inventory B must remain outside selection; preview must preserve owner bytes, timestamp and Git config. Missing or malformed selected settings must refuse. | Supported. Selected and linked operations agree; distinct inventory and read-only preview tests pass. All 9 unselected attempts pass, including the separate no-Node regression. |
+| AC10 | The same candidates must receive matching CLI, merge and pre-push decisions and identities. Bad Git attempts preserve their target; valid ones move it. Documentation, first-commit, pulled-content and legacy exceptions remain as specified. | Supported. All 114 baseline/candidate policy observations have consistent exits and Git tips. Final covered routes report checker `0.0.0+c99111627faa`; exception and parser regressions pass. |
+| AC14 | The frozen list requires 57 actual attempts, three repeats per case. Recompute exits, tips, counts and medians. Unsupported baseline v2 is a separate capability gap; altered scope results or missing denominators must fail receipt checking. | Supported. Independent counts and every timing group match the saved receipt; actual receipt tampering tests refuse changed scope output and missing denominators. |
 
-## Baseline and measurement limits
+Final execution records are under [final-verifier](https://assets.agee.dev/evidence/spec-lock/bd3b4b1e2d30f33c06dbbb8b4b611b48/report.md).
+The report names each test, assertion, oracle source and actual output. The four approved
+commands and complete stdout/stderr are bound in
+[execution metadata](https://assets.agee.dev/evidence/spec-lock/d8ab3ef78aef702d6a2a5cf574c6c976/execution-metadata.json).
 
-The prerequisite is `6a0d7e5f3c306357f07a4d1fe6bba343fcc48375`.
-[`portable-evidence-policy/frozen.json`](https://assets.agee.dev/evidence/spec-lock/46d0ce00fc3012956d6533f693f83f18/frozen.json) pins the baseline, case list and initial fixture
-bytes before production edits. The baseline uses the actual prerequisite capture,
-export, ordinary check and hooks. It records 24 unsupported v2 verdicts, split between
-12 invalid and 12 valid attempts, separately from false acceptances/refusals. The
-candidate adds support and required semantic validation. Unsupported baseline timing
-measures its refusal route, not a full valid check. No valid baseline denominator is
-invented. The applicable baseline invalid denominator is 24; candidate is 36.
+## Independent commit replay
 
-Initial raw before/after observations are [`baseline.json`](https://assets.agee.dev/evidence/spec-lock/6443c945bf0316d9dada9a36b18e7f7d/baseline.json) and [`candidate.json`](https://assets.agee.dev/evidence/spec-lock/228d2f7ccb2730e0e2b9357373235266/candidate.json) below
-this proof directory. [`impact.json`](https://assets.agee.dev/evidence/spec-lock/0e183e7bad12b5594821149b5b39a3cc/impact.json) retains per-case medians and ranges. Three repeats
-use the same runtime, with repeats 1 and 2 marked warm but no forced cache or load
-control. Captures and export are outside paired operation timings. Synthetic input
-snapshots and captured records are retained. Public raw observations replace scratch
-and checker host paths with aliases; private originals remain unchanged. Whole-task
-usage and cost are unavailable, not zero. No production reliability claim follows.
+Procedure: independent manual rerun. Author session
+`01a0e87d-1020-7d73-907e-4f3d1b1a6a92`; verifier session
+`01a0e947-29ea-78d3-bf44-8028e89635ae`. The verifier used a separate detached checkout
+at the full source commit. All four commands exited 0 within their time limits. Before and after each command,
+HEAD matched the source commit, Git status was empty and all 46 approved input hashes
+matched. The parent separately verified all eight states and captured output hashes.
+The replay passed 66 tests with no skips and 132 walk observations. It used Node
+v26.7.0 and Apple Git 2.54.0; all 78 captured checker lines matched the independently
+computed fingerprint `0.0.0+c99111627faa`.
 
-## Tests and controls
+The verifier approved the exact final regression replacements against the corrected
+spec and four review reports. Frozen case-list, fixture, walk and baseline bytes still
+match their pre-implementation hashes. Regression tests changed to cover observed
+review defects. Runtime and configuration identities are recorded without treating
+clean Git status as complete input identity. Session records remain unauthenticated.
 
-The initial full suite exited 0: 76 tests, 75 passed, one opt-in remote canary skipped.
-[`portable-evidence-policy/full-suite.txt`](https://assets.agee.dev/evidence/spec-lock/730f6e317b6d959a700eb18109eb5004/full-suite.txt) retains the output. The combined offline
-walk exited 0 with 36 capture checks, 39 semantic checks and 57 policy attempts, and
-printed `AC1 through AC10 offline walks passed`.
+The approved commands, run from the verifier checkout, were:
 
-Four development guard removals failed their intended assertions: required evidence,
-unselected hook bypass, pre-push enforcement and manifest policy identity. Exact
-patches, source/mutated hashes and transcripts are under `controls-development/`.
-They precede the documentation exemption repair and are not final-source receipts.
-Final-source controls will be saved separately.
+```sh
+node --test test/portable-evidence.test.mjs test/semantic-evidence.test.mjs test/policy-evidence.test.mjs
+node test/portable-evidence-walk.mjs all "$VERIFIER_RECORDS/all-walk"
+node test/policy-receipt.mjs docs/proof/portable-evidence-policy/baseline.json "$VERIFIER_RECORDS/all-walk/policy.json" "$VERIFIER_RECORDS/impact.json" write
+node test/policy-receipt.mjs docs/proof/portable-evidence-policy/baseline.json "$VERIFIER_RECORDS/all-walk/policy.json" "$VERIFIER_RECORDS/impact.json"
+```
+
+The public metadata aliases host paths; the private execution record retains literal
+host commands. The bounded commands allowed only temporary synthetic Git operations
+and records outside the checkout. They did not authorize real activation or publication.
+
+## Measured impact
+
+| Measure | Prerequisite | Final candidate |
+|---|---:|---:|
+| Applicable invalid attempts accepted | 24/24 | 0/36 |
+| Applicable valid attempts refused | No applicable v2 baseline | 0/12 |
+| Unselected operations blocked | 9/9 | 0/9 |
+| Unsupported v2 attempts | 24 | 0 |
+
+The baseline's 24 unsupported v2 attempts split into 12 invalid and 12 valid cases.
+They are neither invalid acceptances nor valid false refusals. Its applicable valid
+v2 denominator is zero. All frozen selected and unselected cases retain their labels;
+Git target movement must agree with command exit. Raw baseline is
+[baseline.json](https://assets.agee.dev/evidence/spec-lock/6443c945bf0316d9dada9a36b18e7f7d/baseline.json), final candidate is
+[policy.json](https://assets.agee.dev/evidence/spec-lock/bc9c154a68148e07f9f17f43325f7b6b/policy.json).
+
+| Operation | Old accepted proof median | Required v2 median | Added median |
+|---|---:|---:|---:|
+| CLI | 461.7 ms | 1301.7 ms | 840.0 ms |
+| Local merge | 612.4 ms | 937.4 ms | 324.9 ms |
+| Pre-push | 387.3 ms | 817.6 ms | 430.3 ms |
+| Linked worktree merge | 524.6 ms | 993.6 ms | 468.9 ms |
+
+This supplemental cross-format comparison uses the baseline's accepted legacy proof
+and the candidate's complete v2 proof after checking identical non-proof code/spec/test
+bytes. It does not relabel frozen cases. The literal baseline-v2 timing measures a
+schema-refusal route, not complete valid verification. Three repeats have no forced
+cache or load control; repeats 1 and 2 are labeled warm. Capture/export time is outside
+these operation timings. No production reliability or whole-workflow speed claim follows.
+The independent recomputation retains per-case medians and ranges.
+
+Whole-task token usage and cost are unavailable. The two Opus review responses report
+$5.5318286 combined provider cost; this is partial usage, not the task's total cost.
+
+## Tests, failures and controls
+
+The author ran the full suite through the shared full-suite wrapper. Final output is
+[full-suite-completion.txt](https://assets.agee.dev/evidence/spec-lock/d35697c95e897052a13f62786546fee8/full-suite-completion.txt):
+96 tests, 95 passed, zero failed, one opt-in remote canary skipped. No remote canary
+operation was authorized. The independent replay above runs the acceptance tests again
+on the committed source. The ordinary committed-range check also printed `spec-lock: ok`
+and checker `0.0.0+c99111627faa`; see [source-commit-check.txt](https://assets.agee.dev/evidence/spec-lock/6fd2adbf28e536023c9e10b3c225dc05/source-commit-check.txt).
+
+Five throwaway-copy controls remove required policy, the unselected bypass, pre-push
+enforcement, manifest policy binding and inventory/selection separation. Each failed
+its intended assertion. [mutations.json](https://assets.agee.dev/evidence/spec-lock/2ba03fefd5530994bf3a9a8ba30bbca7/mutations.json) links
+exact patches, source/mutated hashes and transcripts. The final source map is
+[completion-source-hashes.json](https://assets.agee.dev/evidence/spec-lock/56ed757ce917796c894f7bf36c1097b9/completion-source-hashes.json).
+The verifier checked these records and reconstructed patch hashes in memory; it did
+not independently rerun historical controls. `controls-development/` is an older generation.
+
+| Repair stage | Symptom-bearing red | Green and final reproducer |
+|---|---|---|
+| Required policy and adapters | [`red-required.txt`](https://assets.agee.dev/evidence/spec-lock/6c5bb1ea604f26a291b72ab5da888a1c/red-required.txt), [`red-adapters.txt`](https://assets.agee.dev/evidence/spec-lock/f9f000183c5b4a5dd1af29154c57a293/red-adapters.txt) | Required-version, adapter-policy and inventory tests in the final replay |
+| Documentation prose exemption | [`red-doc-proof.txt`](https://assets.agee.dev/evidence/spec-lock/597bf563d7773a2dc98e6b138c6441dc/red-doc-proof.txt) | Documentation exception in the final replay |
+| Review 1: parser/scope/documentation defects | [`red-review-1.txt`](https://assets.agee.dev/evidence/spec-lock/d5a791dcf14bb0d500a501ea324ef0c1/red-review-1.txt), corrected [`red-doc-v1.txt`](https://assets.agee.dev/evidence/spec-lock/8c9592cd4b52542a298fc077cc99ee4d/red-doc-v1.txt) | [`green-review-1.txt`](https://assets.agee.dev/evidence/spec-lock/90941ad8aa91e192cbc9bd8c0a63026f/green-review-1.txt), final review-one regressions |
+| Review 2: case identity, CR/bare-keyword/includes | [`red-review-2.txt`](https://assets.agee.dev/evidence/spec-lock/c8650429cddf490db1e54510400f7926/red-review-2.txt), [`red-cr-comment.txt`](https://assets.agee.dev/evidence/spec-lock/052256df1699bf7633dbd6b32c6e1aa3/red-cr-comment.txt) | [`green-review-2.txt`](https://assets.agee.dev/evidence/spec-lock/f600c62d925e9ee0f8d7b55766009e9c/green-review-2.txt), final review-two regressions |
+| Review 3: legacy reactivation and NUL bytes | [`red-review-3.txt`](https://assets.agee.dev/evidence/spec-lock/6144fec2a577eebfb5df501a0b645f87/red-review-3.txt) | [`green-review-3.txt`](https://assets.agee.dev/evidence/spec-lock/46f3b42ac20a932aa6631cabf8d884c4/green-review-3.txt), final review-three regressions |
+| Review 4: Unicode separators, exact bytes and LF discovery | [`red-review-4.txt`](https://assets.agee.dev/evidence/spec-lock/e09d07cbd4ed36924a1021e1c3f2a804/red-review-4.txt) | [`green-review-4.txt`](https://assets.agee.dev/evidence/spec-lock/8285213c2cf61844c8525dcdc90b7d73/green-review-4.txt), final review-four regressions |
+
+All listed files are under `portable-evidence-policy/`. Reviewed source hash maps
+identify each pre-fix generation. The initial documentation-v1 red had a missing
+fixture object; it is excluded and replaced by the symptom-bearing [`red-doc-v1.txt`](https://assets.agee.dev/evidence/spec-lock/8c9592cd4b52542a298fc077cc99ee4d/red-doc-v1.txt).
+An initial owner-edit test wrongly expected Git's refusal exit to equal the CLI's 1;
+Git correctly refused with 128. That assertion-only mistake is excluded from production
+bug counts. [`red-preview.txt`](https://assets.agee.dev/evidence/spec-lock/527dfe0be5350760754d37c411c1948c/red-preview.txt) records an absent-command capability gap, not a
+symptom-bearing defect red. The inventory-enrollment control supplies the behavioral
+scope failure. Final tests rerun the corrected reproductions.
 
 ## Review ownership
 
-Required code-review rounds use Codex gpt-6-astra high, then Claude Opus 5.5 high.
-Their fixed comparison base is the prerequisite above. Round receipts and exact
-commands will be added here. No project-specific additional receipt is configured.
-This CLI-only work has no browser, Design or video stage. Final independent execution
-will use a distinct session and detached checkout, exact source revision and approved
-input hashes before/after each command.
+Four code-review rounds used the fixed prerequisite. All observed defects were repaired.
+No fifth broad review ran. The final formatting repairs received targeted regressions,
+the full suite and independent approval of their exact replacement inputs.
 
-## Limits
+| Round | Owner | Result and receipt |
+|---|---|---|
+| 1 | Codex gpt-6-astra, high | One Standards violation, five Spec defects and one preview coverage gap; [review-1.md](https://assets.agee.dev/evidence/spec-lock/a76e91a042e3c13f8dcc3cb71541306a/review-1.md) |
+| 2 | Claude Opus 5.5, high | Two Standards violations, four Spec defects and coverage gaps; [review-2.md](https://assets.agee.dev/evidence/spec-lock/abfa80d2479fa70e50a8b6fff651a764/review-2.md) |
+| 3 | Codex gpt-6-astra, high | Zero Standards findings, two Spec defects, zero additional Evidence findings; [review-3.md](https://assets.agee.dev/evidence/spec-lock/21c069f676a28842a7b42b53a5a98974/review-3.md) |
+| 4 | Claude Opus 5.5, high | Zero Standards violations, two P3 Spec defects, no new hard Evidence finding; [review-4.md](https://assets.agee.dev/evidence/spec-lock/a1fa6d4becc1e1ac64939d0893391670/review-4.md) |
 
-Owner policy and records are editable by the same user. They do not authenticate
-actors or prevent test writes. Hook bypass and remote-default-ref trust remain.
-Documentation, initial-commit and previously landed/pulled-content exceptions remain;
-the owner must review them before any pilot. Generic chat claims and the workflow
-consumer remain outside this increment. No active repository has adopted this policy.
-
-## First review and repair
-
-Codex gpt-6-astra high found one public-artifact Standards violation, five Spec defects
-and one preview coverage gap. The request snapshots now omit the private skill path.
-Policy scope validates actual common Git directories; indented selected settings no
-longer become legacy; final integration entries without a newline remain guarded;
-duplicate integration settings refuse consistently. Documentation-only version 1
-proofs retain legacy validation. Preview tests check existing owner bytes/timestamp
-and absence of a newly created owner or activation file, as well as Git config.
-
-All 17 policy tests passed after these repairs. A further parity run passed two tests,
-including selected legacy policy; adapter assertions compare exact policy/checker ids.
-The no-final-newline test now also exercises pushing to the integration branch; the
-next full run covers that added assertion. The first attempted documentation-v1 red
-hit a missing fixture object; that is not defect evidence. [`red-doc-v1.txt`](https://assets.agee.dev/evidence/spec-lock/8c9592cd4b52542a298fc077cc99ee4d/red-doc-v1.txt) is the
-corrected symptom-bearing red, which refused specifically for the semantic version.
-
-Review receipt: [`portable-evidence-policy/review-1.md`](https://assets.agee.dev/evidence/spec-lock/a76e91a042e3c13f8dcc3cb71541306a/review-1.md). Exact command:
+Both Claude receipts name only `claude-opus-5-5`. Request snapshots and exact reviewer
+source hashes are retained. Commands used, with only private record directories aliased:
 
 ```sh
 codex exec --skip-git-repo-check --model "${AGENTS_REVIEW_MODEL:-gpt-6-astra}" -c model_reasoning_effort="high" -o docs/proof/portable-evidence-policy/review-1.md "$(cat docs/proof/portable-evidence-policy/review-request.txt)" < /dev/null > "$REVIEW_RECORDS/review-1.raw.txt" 2>&1
-```
-
-The private execution record keeps the unmodified request and original host command;
-public request snapshots replace only the private skill path.
-
-## Second review and repair
-
-Claude Opus 5.5 high found four actual policy defects: a case alias silently removed
-selection; CR comments and bare keywords split CLI/hook decisions; included global
-registrations lost the persistent marker. The regression reds are [`red-review-2.txt`](https://assets.agee.dev/evidence/spec-lock/c8650429cddf490db1e54510400f7926/red-review-2.txt)
-and [`red-cr-comment.txt`](https://assets.agee.dev/evidence/spec-lock/052256df1699bf7633dbd6b32c6e1aa3/red-cr-comment.txt); all fail the intended assertions. Production inputs were
-the round-2 reviewed bytes. [`green-review-2.txt`](https://assets.agee.dev/evidence/spec-lock/f600c62d925e9ee0f8d7b55766009e9c/green-review-2.txt) passes all 22 policy tests after repair.
-
-Selection now compares directory identity. LF validation precedes shell comment
-skipping, discovery handles bare keywords, and global lookup follows includes. Each
-Node check/export uses one owner-policy snapshot. Inventory preview and activation
-now use a distinct unselected repository; an additional control mutates inventory
-into selection. Project fingerprint and registration notes are corrected. Further
-coverage checks stale selected-policy exports and first-commit/pull exceptions.
-
-The review receipt is [`portable-evidence-policy/review-2.md`](https://assets.agee.dev/evidence/spec-lock/abfa80d2479fa70e50a8b6fff651a764/review-2.md); exact model usage is
-[`review-2-usage.json`](https://assets.agee.dev/evidence/spec-lock/fe170ca69191833e310a513b231b5dab/review-2-usage.json) and names only `claude-opus-5-5`. Its partial provider cost is
-$2.682508, not whole-task cost. Exact command:
-
-```sh
 PATH="$HOME/.local/bin:$PATH" CLAUDE_CODE_NO_MODEL_FALLBACK=1 CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK=1 claude -p --model claude-opus-5-5 --effort high --output-format json "$(cat docs/proof/portable-evidence-policy/review-request.txt)" < /dev/null > "$REVIEW_RECORDS/review-2.json"
-```
-
-Missing or malformed selected settings deliberately refuse every head update before
-scope/branch filtering, including unselected feature commits and garbage collection
-that packs refs. Happy-policy AC14 denominators do not cover this recovery condition.
-In a code landing, every touched top-level proof needs version 2, including edited
-older proofs. These limits are now explicit in the spec.
-
-## Post-round-2 verification
-
-The full offline suite exited 0: 89 tests, 88 passed, zero failed, one opt-in remote
-canary skipped. Output: [`portable-evidence-policy/full-suite-review-2.txt`](https://assets.agee.dev/evidence/spec-lock/5fd08be15432a58385cffca9c2242b50/full-suite-review-2.txt). It ran
-through the shared full-suite wrapper. The additional two exception tests pass in
-[`green-exceptions.txt`](https://assets.agee.dev/evidence/spec-lock/d62567697cb7625b504aa54da9fa7c35/green-exceptions.txt). Their initial owner-edit assertion mistakenly expected Git's
-refusal exit to equal the CLI's 1; Git correctly refused with 128. That assertion-only
-error is excluded from production defect counts.
-
-Five controls failed at intended assertions, including inventory enrollment. Root
-control patches, transcripts and hash maps are this generation; `controls-development/`
-retains the earlier generation. Frozen case-list, fixture, walk and baseline hashes
-still match. Regression-test bytes changed to cover review findings.
-
-## Third review and repair
-
-Codex high reported zero Standards findings, two Spec defects and zero additional
-Evidence findings. Legacy activation could erase the persistent selected marker.
-Shell reads discarded NUL bytes and disagreed with Node on malformed policy. The
-four regressions in [`red-review-3.txt`](https://assets.agee.dev/evidence/spec-lock/6144fec2a577eebfb5df501a0b645f87/red-review-3.txt) fail at intended assertions, including NUL in
-comments. Legacy activation now refuses selected registrations, including when the
-owner file is missing. A byte-preserving shell round-trip check rejects NUL before
-parsing without requiring Node in unselected repositories. Node also rejects NUL.
-
-Review receipt: [`portable-evidence-policy/review-3.md`](https://assets.agee.dev/evidence/spec-lock/21c069f676a28842a7b42b53a5a98974/review-3.md). Exact command:
-
-```sh
 codex exec --skip-git-repo-check --model "${AGENTS_REVIEW_MODEL:-gpt-6-astra}" -c model_reasoning_effort="high" -o docs/proof/portable-evidence-policy/review-3.md "$(cat docs/proof/portable-evidence-policy/review-request.txt)" < /dev/null > "$REVIEW_RECORDS/review-3.raw.txt" 2>&1
-```
-
-The prior combined walk passed all 132 observations but predates these two repairs.
-The fourth and final review, refreshed final-source execution and independent
-exact-commit replay remain pending.
-
-Post-round-3 repair: all six targeted regressions passed in [`green-review-3.txt`](https://assets.agee.dev/evidence/spec-lock/46f3b42ac20a932aa6631cabf8d884c4/green-review-3.txt).
-
-## Final-source checks before commit
-
-After the third-round repairs, the full suite exited 0 with 93 tests: 92 passed, zero
-failed, one opt-in remote canary skipped. The output is [`full-suite-final.txt`](https://assets.agee.dev/evidence/spec-lock/c985accdcbc240eb55e6b61d9db6e1cb/full-suite-final.txt). All
-five guard-removal controls failed their intended assertions on the same source.
-The review-four source map and final control source map match the current source
-and test bytes. The independent commit replay remains pending.
-
-The final author walk exited 0: 36 capture checks, 39 semantic checks and 57 policy
-attempts. It printed `AC1 through AC10 offline walks passed`. Raw records are
-[`capture-final.json`](https://assets.agee.dev/evidence/spec-lock/b1ceb3ff6ca4aa2ef6db8693691ee9fe/capture-final.json), [`semantic-final.json`](https://assets.agee.dev/evidence/spec-lock/368e154f9685fc76de4a9d15cc07ff47/semantic-final.json) and [`policy-final.json`](https://assets.agee.dev/evidence/spec-lock/506edd3a10601f1039dadb5ae3497627/policy-final.json); [`impact-final.json`](https://assets.agee.dev/evidence/spec-lock/8767364d02d77d1317742265f507ec4c/impact-final.json)
-recomputes the policy receipt. Candidate results are 0/36 invalid accepted, 0/12 valid
-refused and 0/9 unselected blocked. Baseline remains 24/24 applicable invalid accepted,
-9/9 unselected blocked, and 24 unsupported v2 results.
-
-A separate cross-format comparison uses the baseline's accepted legacy proof and
-the candidate's complete v2 proof for identical non-proof code/spec/test bytes. It
-does not relabel frozen cases. The three-repeat median timings are:
-
-| Operation | Old accepted proof | Required v2 proof | Added time |
-|---|---:|---:|---:|
-| CLI | 462 ms | 1,565 ms | 1,103 ms |
-| Local merge | 612 ms | 1,087 ms | 475 ms |
-| Pre-push | 387 ms | 905 ms | 518 ms |
-| Linked worktree merge | 525 ms | 1,151 ms | 626 ms |
-
-Exact values are in [`valid-upgrade-final.json`](https://assets.agee.dev/evidence/spec-lock/e083d5c506a0aa9f2f47c618ef2112a7/valid-upgrade-final.json); per-case ranges are in
-[`impact-final.json`](https://assets.agee.dev/evidence/spec-lock/8767364d02d77d1317742265f507ec4c/impact-final.json). Load and cache were not controlled. These are synthetic local
-checker timings, not complete workflow costs or production reliability measurements.
-
-## Fourth review and final repairs
-
-Claude Opus 5.5 high reported zero Standards violations and two P3 Spec defects.
-Unicode line separators could split CLI/hook verdicts; decoded UTF-8 text could
-collapse different owner comment bytes into one fingerprint. The three regressions
-in [`red-review-4.txt`](https://assets.agee.dev/evidence/spec-lock/e09d07cbd4ed36924a1021e1c3f2a804/red-review-4.txt) reproduce both defects and LF-only setting discovery. The
-repairs hash the raw buffer and parse LF-delimited values with dotAll. Unused forced
-selection input and stale shell comments are removed. No fifth code review runs.
-
-Receipt: [`portable-evidence-policy/review-4.md`](https://assets.agee.dev/evidence/spec-lock/a1fa6d4becc1e1ac64939d0893391670/review-4.md). [`review-4-usage.json`](https://assets.agee.dev/evidence/spec-lock/28a6671e0fde2f49d8d6c378e10d09e8/review-4-usage.json) names only
-`claude-opus-5-5`; partial provider cost $2.8493206. Exact command:
-
-```sh
 PATH="$HOME/.local/bin:$PATH" CLAUDE_CODE_NO_MODEL_FALLBACK=1 CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK=1 claude -p --model claude-opus-5-5 --effort high --output-format json "$(cat docs/proof/portable-evidence-policy/review-request.txt)" < /dev/null > "$REVIEW_RECORDS/review-4.json"
 ```
 
-Known limits from this review: every owner-file byte edit, even a comment, invalidates
-pending exports across all selected repositories. Moving or deleting a selected
-repository makes its entry invalid and triggers the documented all-head refusal.
-Supported registration is global, as the rollout writes it. Manually placing selected
-hooks only in system or repository-local config is outside that registration contract
-and may split missing-policy CLI/hook behavior; this was a reading-based concern,
-not an observed probe. The shell and Node readers remain separate because unselected
-hooks must work without Node; regression samples exercise their agreement.
+There is no additional project-specific review receipt. Delivery review and rollout
+checks remain required before an eventual authorized landing; this local commit waives none.
 
-The earlier files named `*-final` are the pre-round-4-repair generation. The refreshed
-completion suite/walk/controls and exact-commit replay below identify the final source.
+## Limits and retained records
 
-Post-round-4 targeted checks passed all five tests in [`green-review-4.txt`](https://assets.agee.dev/evidence/spec-lock/8285213c2cf61844c8525dcdc90b7d73/green-review-4.txt). The final
-replacement inputs are recorded in [`completion-source-hashes.json`](https://assets.agee.dev/evidence/spec-lock/56ed757ce917796c894f7bf36c1097b9/completion-source-hashes.json). Four broad
-code reviews completed, in the required Codex/Opus/Codex/Opus order. The final
-formatting repairs receive regression execution and independent input approval in
-the commit replay, not a fifth code-review round.
+- Owner settings and records are editable by the same user. Hook bypass and trusted
+  remote-default refs remain. No authenticated actor identity or protected-write boundary exists.
+- Every owner-file byte edit, even a comment, invalidates pending exports across all
+  selected repositories. Exports must be recreated for the new policy identity.
+- Missing or malformed selected settings refuse every head update before scope/branch
+  filtering, including unselected feature commits and garbage-collection ref packing.
+  Moving or deleting a selected repository can trigger this condition. Happy-policy
+  measurement denominators do not cover recovery from that condition.
+- Supported hook registration is global, as rollout writes it. Manually placing selected
+  registration only in system or repository-local config may split missing-policy behavior;
+  this is a reading-based concern, not an observed probe of the supported rollout.
+- Documentation, first-commit and previously landed/pulled-content exceptions remain.
+  In code landings every touched top-level proof needs v2, including edited older proofs.
+- Shell and Node readers remain separate so unselected hooks work without Node. The
+  shared regression cases check their decisions. Generic reply/claim interception and
+  the Claude workflow consumer remain outside this increment.
 
-Completion full suite exited 0: 96 tests, 95 passed, zero failed, one optional remote
-canary skipped. [`full-suite-completion.txt`](https://assets.agee.dev/evidence/spec-lock/d35697c95e897052a13f62786546fee8/full-suite-completion.txt) is the current source's complete suite
-output. Five controls were refreshed and failed their intended assertions; root
-control hash maps now match [`completion-source-hashes.json`](https://assets.agee.dev/evidence/spec-lock/56ed757ce917796c894f7bf36c1097b9/completion-source-hashes.json). The source is ready
-for the exact-commit replay.
+Files named `*-final` outside `final-verifier/` are the pre-round-4-repair author
+measurement generation. [`full-suite-completion.txt`](https://assets.agee.dev/evidence/spec-lock/d35697c95e897052a13f62786546fee8/full-suite-completion.txt) and `final-verifier/` identify final
+source results. Other earlier generations are retained as history, not substituted for
+the exact-commit replay. Public projections replace host paths and machine identity with
+aliases and retain captured whitespace. [`final-verifier/projection.json`](https://assets.agee.dev/evidence/spec-lock/e226c1388ccf473cea92039e2452442d/projection.json) binds original
+and public artifact hashes; unmodified originals remain in the private execution record.
 
 ## Evidence files
 
@@ -256,6 +209,25 @@ These files were committed under `docs/proof/portable-evidence-policy/` and now 
 | `controls-development/required-policy.txt` | [link](https://assets.agee.dev/evidence/spec-lock/54a81a727a6d200b3ccc322c9a6171ac/required-policy.txt) |
 | `controls-development/unselected-scope.patch` | [link](https://assets.agee.dev/evidence/spec-lock/849f009f39615a6e3c63290623182906/unselected-scope.patch) |
 | `controls-development/unselected-scope.txt` | [link](https://assets.agee.dev/evidence/spec-lock/85ad4d9726cf8494e100169d9c639680/unselected-scope.txt) |
+| `final-verifier/ac-verdicts.json` | [link](https://assets.agee.dev/evidence/spec-lock/b34e2c847f36a3092aa3a00543d6a2d6/ac-verdicts.json) |
+| `final-verifier/all-walk/capture.json` | [link](https://assets.agee.dev/evidence/spec-lock/9526023db3e6c414194d80fc1343e36f/capture.json) |
+| `final-verifier/all-walk/policy.json` | [link](https://assets.agee.dev/evidence/spec-lock/bc9c154a68148e07f9f17f43325f7b6b/policy.json) |
+| `final-verifier/all-walk/semantic.json` | [link](https://assets.agee.dev/evidence/spec-lock/12183bd7cbc5d9da629ca01063b44973/semantic.json) |
+| `final-verifier/command-1.stderr.txt` | [link](https://assets.agee.dev/evidence/spec-lock/c70157fd95b89a6a12756028f2a1b4b9/command-1.stderr.txt) |
+| `final-verifier/command-1.stdout.txt` | [link](https://assets.agee.dev/evidence/spec-lock/023733fa4cc350793a724a243cf8abf8/command-1.stdout.txt) |
+| `final-verifier/command-2.stderr.txt` | [link](https://assets.agee.dev/evidence/spec-lock/2c1894d1601154468b5c97902151233a/command-2.stderr.txt) |
+| `final-verifier/command-2.stdout.txt` | [link](https://assets.agee.dev/evidence/spec-lock/4070a0a351b1476e21b0f456fcfedcac/command-2.stdout.txt) |
+| `final-verifier/command-3.stderr.txt` | [link](https://assets.agee.dev/evidence/spec-lock/0ff5619bea1416dd874a0c706c0ba17d/command-3.stderr.txt) |
+| `final-verifier/command-3.stdout.txt` | [link](https://assets.agee.dev/evidence/spec-lock/59cbf91dc7897747fc0aff94bd9a31b3/command-3.stdout.txt) |
+| `final-verifier/command-4.stderr.txt` | [link](https://assets.agee.dev/evidence/spec-lock/92891894fabf8ca0f7da80e169a9f6e1/command-4.stderr.txt) |
+| `final-verifier/command-4.stdout.txt` | [link](https://assets.agee.dev/evidence/spec-lock/31d74e196eb27eb5197d4d9f77b27c9b/command-4.stdout.txt) |
+| `final-verifier/execution-metadata.json` | [link](https://assets.agee.dev/evidence/spec-lock/d8ab3ef78aef702d6a2a5cf574c6c976/execution-metadata.json) |
+| `final-verifier/impact.json` | [link](https://assets.agee.dev/evidence/spec-lock/c14cb629cd57b334d9e149c023b22bd7/impact.json) |
+| `final-verifier/independent-recomputation.json` | [link](https://assets.agee.dev/evidence/spec-lock/8606c5366de7d4a461b2b559912e27a7/independent-recomputation.json) |
+| `final-verifier/projection.json` | [link](https://assets.agee.dev/evidence/spec-lock/e226c1388ccf473cea92039e2452442d/projection.json) |
+| `final-verifier/record-inspection.json` | [link](https://assets.agee.dev/evidence/spec-lock/c07dfa80f192d6742945fcba517d6ea1/record-inspection.json) |
+| `final-verifier/report.md` | [link](https://assets.agee.dev/evidence/spec-lock/bd3b4b1e2d30f33c06dbbb8b4b611b48/report.md) |
+| `final-verifier/runtime-details.json` | [link](https://assets.agee.dev/evidence/spec-lock/fb068aa4550067aeae7657c0fb400d81/runtime-details.json) |
 | `frozen.json` | [link](https://assets.agee.dev/evidence/spec-lock/46d0ce00fc3012956d6533f693f83f18/frozen.json) |
 | `full-suite-completion.txt` | [link](https://assets.agee.dev/evidence/spec-lock/d35697c95e897052a13f62786546fee8/full-suite-completion.txt) |
 | `full-suite-final.txt` | [link](https://assets.agee.dev/evidence/spec-lock/c985accdcbc240eb55e6b61d9db6e1cb/full-suite-final.txt) |
@@ -313,6 +285,8 @@ These files were committed under `docs/proof/portable-evidence-policy/` and now 
 | `review-request.txt` | [link](https://assets.agee.dev/evidence/spec-lock/9cf531beaa40d67bc4fa557d8bac9ef7/review-request.txt) |
 | `semantic-final.json` | [link](https://assets.agee.dev/evidence/spec-lock/368e154f9685fc76de4a9d15cc07ff47/semantic-final.json) |
 | `semantic-review-1.json` | [link](https://assets.agee.dev/evidence/spec-lock/6c84498c850ac55de18ba5accd1a1c86/semantic-review-1.json) |
+| `source-commit-check.json` | [link](https://assets.agee.dev/evidence/spec-lock/fc8a0742d0cb3a6f5cf957c1322aa45d/source-commit-check.json) |
+| `source-commit-check.txt` | [link](https://assets.agee.dev/evidence/spec-lock/6fd2adbf28e536023c9e10b3c225dc05/source-commit-check.txt) |
 | `targeted.txt` | [link](https://assets.agee.dev/evidence/spec-lock/19cca362ccc2821862152f7d2614483e/targeted.txt) |
 | `unselected-scope.patch` | [link](https://assets.agee.dev/evidence/spec-lock/aa0cde5cff418939fd890bffd2396fd9/unselected-scope.patch) |
 | `unselected-scope.txt` | [link](https://assets.agee.dev/evidence/spec-lock/f4542c0a4df989d3f682cf2eb5a4a646/unselected-scope.txt) |
