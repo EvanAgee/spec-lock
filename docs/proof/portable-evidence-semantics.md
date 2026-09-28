@@ -3,12 +3,12 @@ tags: [portable-evidence, candidate, semantic, cli]
 date: 2026-09-28
 issue: local-meaningful-test-evidence
 spec: docs/specs/portable-evidence-semantics.md
-walked: pending
+walked: a73b05e77b2e4ea4fa8f358bdd97b96d1cea4b71
 ---
 # Require meaningful failure and expected-result evidence
 
 The local candidate has completed four code-review rounds and their repairs.
-The final full suite passed. Exact-commit independent replay is pending. No push,
+The final full suite and independent replay of the exact source commit passed. No push,
 merge, real hook activation or repository enrollment is part of this task.
 
 ## What I walked
@@ -50,7 +50,7 @@ No reliability or productivity claim extends beyond these synthetic cases.
 Current pre-commit raw observations and recomputed medians/ranges are [`candidate.json`](https://assets.agee.dev/evidence/spec-lock/892ab6bb7d87b53f23ed58f5d3658835/candidate.json)
 and [`impact.json`](https://assets.agee.dev/evidence/spec-lock/80758bcaae4275f3afad10bccbf5986d/impact.json) below this proof directory. Earlier reviewed samples remain under
 review-1 through review-4 suffixes; the development sample is not final evidence.
-The final independent replay will be retained separately and will not replace them.
+The final independent replay is retained under `final-verifier/` and does not replace them.
 
 ## Regressions and controls
 
@@ -126,6 +126,20 @@ are trusted local commands, not sandboxed programs, and must not daemonize.
 
 The final pre-commit valid-case median is 1839.306 ms, versus 916.435 ms at baseline, adding 922.871 ms. Invalid acceptances remain 0/36 and valid refusals 0/3. Full per-case ranges and all historical samples remain saved.
 
+## Final independent execution
+
+Owner: Evidence verifier session `01a0e8f5-2cd9-7ca2-ba8f-2dfa2ecd0774`, distinct from author `01a0e87d-1020-7d73-907e-4f3d1b1a6a92`. It ran in a separate detached checkout at `a73b05e77b2e4ea4fa8f358bdd97b96d1cea4b71`, checker `0.0.0+e3391fcceabf`. This is an independent manual rerun.
+
+All five approved commands exited 0 within their 240-second limits. The paired capture/semantic tests reported `tests 35`, `pass 35`, `fail 0`, `skipped 0`. The receipt regression also passed as one test from outside the checkout. Before and after every command, source revision was exact, Git status was empty and all nine approved input hashes matched. The verifier approved those bytes against the spec. Runtime was Node v26.7.0 with Apple Git 2.54.0; runtime binary hash, environment and absent dependencies are recorded.
+
+AC5, AC6, AC7 and AC13 each received a supported verdict. The final file-write regression passed both no-create and unchanged-sentinel assertions. See the [per-criterion report](https://assets.agee.dev/evidence/spec-lock/e69dda118cfe0e92c95d90fc54905fcf/report.md), [execution metadata](https://assets.agee.dev/evidence/spec-lock/f9a602fbf816ea07d4c8e38e5238bdb8/metadata.json) and [complete test output](https://assets.agee.dev/evidence/spec-lock/95182bef1316dfebddf7b45eb5e098b9/targeted.stdout).
+
+The independently captured 39 checker calls reproduced 0/36 invalid acceptances and 0/3 valid refusals, compared with baseline 36/36 and 0/3. The verifier recomputed every count, median, range and added median with separate arithmetic, matching the receipt. The valid-case median was 1311.576 ms versus baseline 916.435 ms, adding 395.141 ms. Its range was 1258.040 to 1339.674 ms. See [raw candidate](https://assets.agee.dev/evidence/spec-lock/9f27496c5caec5768d0b15222ca8cd41/candidate.json), [paired receipt](https://assets.agee.dev/evidence/spec-lock/c4b83b3a69b8beb11b3123134335e23f/impact.json) and [independent calculation](https://assets.agee.dev/evidence/spec-lock/e73fcd10a4919c80ff93f3cb2848277f/independent-calculations.json). This single sample does not control machine load or cache state.
+
+The verifier checked all 22 copied mutation-input hashes against the source commit and reconstructed the exact changed bytes from all five saved patches. Historical red and mutation executions were record inspection, not independently rerun. Historical red captures lack the final replay's before/after revision and status metadata; their source provenance is correspondingly weaker. The pre-fix file-creation failure predates the added sentinel assertion. These limits do not change the observed final execution results.
+
+The parent separately checked command exits, output hashes, exact clean revisions, approved input bytes and the paired denominators. Public records normalize only private host paths. [Projection hashes](https://assets.agee.dev/evidence/spec-lock/ede56e518347d1a85209c4ebaec1dda8/projection.json) identify changed copies; private originals remain unchanged. No code or test changed after the walked commit.
+
 ## Evidence files
 
 These files were committed under `docs/proof/portable-evidence-semantics/` and now live only on Cloudflare, behind sign-in. The commit named in `walked` is in the history before it was rebuilt without them; the code and tests here are the same.
@@ -150,6 +164,24 @@ These files were committed under `docs/proof/portable-evidence-semantics/` and n
 | `controls-before-review-2/mutations.json` | [link](https://assets.agee.dev/evidence/spec-lock/212a83d2719c4baf081f1e6781fc919c/mutations.json) |
 | `controls-before-review-2/oracle-review.txt` | [link](https://assets.agee.dev/evidence/spec-lock/e86c6924f0a60e811af55a1026f1b5e9/oracle-review.txt) |
 | `controls-before-review-2/red-review.txt` | [link](https://assets.agee.dev/evidence/spec-lock/7b6bf1be240dc16f83ec23df299e6e13/red-review.txt) |
+| `final-verifier/approved-inputs.json` | [link](https://assets.agee.dev/evidence/spec-lock/7939e2e403f0a20dbb0fd08f4a96869e/approved-inputs.json) |
+| `final-verifier/candidate.json` | [link](https://assets.agee.dev/evidence/spec-lock/9f27496c5caec5768d0b15222ca8cd41/candidate.json) |
+| `final-verifier/candidate.stderr` | [link](https://assets.agee.dev/evidence/spec-lock/85a02dd4687ca0ed03227987b09b7bf8/candidate.stderr) |
+| `final-verifier/candidate.stdout` | [link](https://assets.agee.dev/evidence/spec-lock/1e3333e06c2263e97ac8c245fb3a255a/candidate.stdout) |
+| `final-verifier/external-cwd.stderr` | [link](https://assets.agee.dev/evidence/spec-lock/1d95c0126f4aed0e502235615b2cdb90/external-cwd.stderr) |
+| `final-verifier/external-cwd.stdout` | [link](https://assets.agee.dev/evidence/spec-lock/34022b7eaa6c68fb459934f418781546/external-cwd.stdout) |
+| `final-verifier/impact.json` | [link](https://assets.agee.dev/evidence/spec-lock/c4b83b3a69b8beb11b3123134335e23f/impact.json) |
+| `final-verifier/independent-calculations.json` | [link](https://assets.agee.dev/evidence/spec-lock/e73fcd10a4919c80ff93f3cb2848277f/independent-calculations.json) |
+| `final-verifier/metadata.json` | [link](https://assets.agee.dev/evidence/spec-lock/f9a602fbf816ea07d4c8e38e5238bdb8/metadata.json) |
+| `final-verifier/projection.json` | [link](https://assets.agee.dev/evidence/spec-lock/ede56e518347d1a85209c4ebaec1dda8/projection.json) |
+| `final-verifier/receipt-check.stderr` | [link](https://assets.agee.dev/evidence/spec-lock/4c7f490ab6033baf1364d6abdc9c720d/receipt-check.stderr) |
+| `final-verifier/receipt-check.stdout` | [link](https://assets.agee.dev/evidence/spec-lock/ca0bae9dedef391abc6d3f0151ce60af/receipt-check.stdout) |
+| `final-verifier/receipt-write.stderr` | [link](https://assets.agee.dev/evidence/spec-lock/1435b6d8e5834670c72229f325e90a73/receipt-write.stderr) |
+| `final-verifier/receipt-write.stdout` | [link](https://assets.agee.dev/evidence/spec-lock/1054c62416b1455ba0456b4095b098ba/receipt-write.stdout) |
+| `final-verifier/record-inspection.json` | [link](https://assets.agee.dev/evidence/spec-lock/0d43243ec4e90caab24a15edb8a999e6/record-inspection.json) |
+| `final-verifier/report.md` | [link](https://assets.agee.dev/evidence/spec-lock/e69dda118cfe0e92c95d90fc54905fcf/report.md) |
+| `final-verifier/targeted.stderr` | [link](https://assets.agee.dev/evidence/spec-lock/3de5a89e759a330dae86b781c2e7380f/targeted.stderr) |
+| `final-verifier/targeted.stdout` | [link](https://assets.agee.dev/evidence/spec-lock/95182bef1316dfebddf7b45eb5e098b9/targeted.stdout) |
 | `frozen.json` | [link](https://assets.agee.dev/evidence/spec-lock/b38cd51f7fc9a3015513ba5f3dcfb8c0/frozen.json) |
 | `full-suite-final.txt` | [link](https://assets.agee.dev/evidence/spec-lock/dbf1c99f417cb290a94f30cce96675f1/full-suite-final.txt) |
 | `full-suite-review-1.txt` | [link](https://assets.agee.dev/evidence/spec-lock/64155285416272c8c28add80178b0b7c/full-suite-review-1.txt) |
