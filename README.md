@@ -46,7 +46,7 @@ The manifest is a JSON object, version 1. Every path in it is relative to the re
 When a proof in a landing names a manifest, the landed commit P must meet all of these, read from committed objects alone. Each refusal names the manifest field it concerns.
 
 1. `evidence` is a path under `docs/proof/` with no empty, `.` or `..` segment, and is a regular file at P holding a JSON object with `version` 1.
-2. `reviewed` and `base` are full commit ids (40 or 64 hex digits, never a prefix); `base` is an ancestor of `reviewed`; `reviewed` is P or an ancestor of P; and every path that differs between `reviewed` and P is an added or edited regular file (mode 100644) under `docs/proof/`, with no deletion, rename, symlink or executable. Code, specs and other documentation changed after C refuse the landing, even though C is still an ancestor.
+2. `reviewed` and `base` are full commit ids (40 or 64 hex digits, never a prefix); `base` is an ancestor of `reviewed`; `reviewed` is P or an ancestor of P; and every path that differs between `reviewed` and P is an added or edited regular file (mode 100644) under `docs/proof/`, or at a path the owner lists for this repository (see [Bot files after review](#bot-files-after-review)), with no deletion, rename, symlink or executable. Code, specs and other documentation changed after C refuse the landing, even though C is still an ancestor.
 3. `claims[]` is not empty. Each claim's `spec` is a regular file at `reviewed` whose blob id is `spec_blob`, and its `ac` is a live criterion of that spec.
 4. Each claim's `run` and `judge` name exactly one entry in `runs[]` and `judges[]`, and that judge's `run` is the claim's run and its `ac` is the claim's `ac`.
 5. Each claimed run has `revision` equal to `reviewed`, `outcome` `exited` and `exit` 0, and non-null `stdout` and `stderr` whose `path` is under `docs/proof/`, is a regular file at P, and has exactly `bytes` bytes with SHA-256 `sha256`. An empty stream is a zero-length file, and it must be present.
@@ -55,6 +55,22 @@ When a proof in a landing names a manifest, the landed commit P must meet all of
 The checker cannot know who ran or judged anything. `executor` and `judge` are copies for reading, and the checker never runs a command or fetches a record from anywhere else. The tool that records the runs checks provenance: that the run and judge ids are its own records, made by someone other than the author, with the same bytes.
 
 The check reads C and the review base, so on GitHub a workflow whose proofs carry evidence manifests checks out full history (`fetch-depth: 0`); in a shallow clone those commits are missing and the landing is refused.
+
+### Bot files after review
+
+A bot that commits a generated file to the default branch every day would void every proof in a batch that merges it after export. The owner can list, per repository, the exact paths such a bot writes, in `~/.config/spec-lock/after-review` under the HOME git runs with:
+
+```text
+after-review /absolute/canonical/repository/.git data/changelog.json
+```
+
+- The directory is the repository's canonical common Git directory, written as a `select` line writes it (`git rev-parse --path-format=absolute --git-common-dir`, symbolic links resolved). An entry counts only in the repository whose common directory is exactly that string.
+- The path is exact: no globs, no folders, no spaces, no empty, `.` or `..` segment, never absolute. A listed path may be added or edited after C as a regular file (mode 100644); a deletion, symlink or executable there is still refused.
+- Lines end in LF. An entry whose directory names no repository, or whose path holds a space, never matches anything, so it refuses as before.
+- A missing file, an empty one, or one of only blank lines and `#` comments changes nothing. Any other line, or a file that cannot be read, makes every evidence-bound check fail (exit 2), which refuses the landing.
+- Only HOME places the file. It is never read from the reviewed or landed tree, so a change cannot grant itself an exception.
+- It is a separate file so that editing it never changes the selected policy id, which every version 2 manifest carries. A manifest therefore does not record which paths were listed: a manifest exported before an entry existed passes once it is added. The checker lets any listed path through, so list only files a bot generates and no reviewed claim depends on; never code, a spec or a proof.
+- The GitHub action reads the runner's HOME, which has no such file unless the workflow writes one, and the workflow is reviewed code like any other.
 
 ## Which branches, which repositories
 
@@ -325,6 +341,28 @@ this isolation guarantee covers Git operations that do not register these hooks.
 owner file is deleted, a separate manual legacy activation from an unrelated repository
 cannot discover selected registrations elsewhere. It can still add global legacy hooks.
 Do not mix that owner operation with a selected deployment.
+
+#### Refreshing the selected copy
+
+A selected repository's two hook commands name one installed checker copy, `$COPIES/<commit>/bin/spec-lock-hook` (on this owner's machines `~/.local/share/spec-lock-selected/<commit>`). To move them from commit `$OLD` to `$NEW` of this repository, set `COPIES` (a path with no `|`, `&`, `\` or `'`), `OLD` and `NEW` (full commit ids), `CHECKOUT` (a spec-lock checkout that holds `$NEW`) and `REPO` (the selected repository), and run this as a script with `sh`:
+
+```sh
+set -e
+mkdir "$COPIES/$NEW"
+git -C "$CHECKOUT" archive "$NEW" bin lib package.json | tar -x -C "$COPIES/$NEW"
+config="$(git -C "$REPO" rev-parse --path-format=absolute --git-common-dir)/config"
+for key in hook.spec-lock-reference-transaction.command hook.spec-lock-pre-push.command; do
+  value=$(git config --file "$config" --get "$key")
+  git config --file "$config" "$key" "$(printf '%s' "$value" | sed "s|$COPIES/$OLD/|$COPIES/$NEW/|")"
+done
+cd "$REPO"
+node "$COPIES/$NEW/bin/spec-lock-rollout" doctor "$REPO"
+node "$COPIES/$NEW/bin/spec-lock" policy | tail -n 1
+```
+
+It installs the copy from committed objects, then rewrites only the copy's path inside the two `command` values, leaving the `event` keys and everything else alone. `doctor` accepts only the exact registration of the copy it runs from, so it prints `<repository>: ok`, and the last line is the new `spec-lock checker` line. Delete `$COPIES/$OLD` only once no hook command names it.
+
+`node test/after-review-walk.mjs <old commit> [<new commit>]` runs this block, read from this file, on a scratch HOME and repository.
 
 Selected semantic export binds the manifest's `policy` to `selected-v1:<sha256>` of
 exact central bytes. The CLI, local landing and pre-push require the same policy,

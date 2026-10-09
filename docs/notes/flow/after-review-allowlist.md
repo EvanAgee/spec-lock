@@ -1,0 +1,3 @@
+| Ticket | Wall time from implement to ready | Review findings | Bugs the live proof found after review | Tokens |
+|---|---|---|---|---|
+| after-review-allowlist | About 1 h 15 min (13:25Z to about 14:40Z on 2026-10-09), including two supervisor decisions | Round 1 (Codex): 3 bugs (malformed owner file not read on proof-only landings, README refresh command broke shell quoting, README overstated the guarantee) and 2 evidence gaps; all fixed. Round 2 (Opus): 0 bugs, 11 style, spec and evidence points; the cheap ones fixed | None | Not available to the worker (no `/cost` in a headless worker session) |
