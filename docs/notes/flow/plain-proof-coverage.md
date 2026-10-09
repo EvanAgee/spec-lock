@@ -1,0 +1,3 @@
+| Ticket | Wall time from implement to ready | Review findings | Bugs the live proof found after review | Tokens |
+|---|---|---|---|---|
+| plain-proof-coverage | About 2 h 10 min (20:48Z to about 23:00Z on 2026-10-09), including one supervisor decision | Round 1 (Codex): 1 bug (rollback read one hook for four keys). Round 2 (Opus): 2 bugs (rollback deleted the file; check said plain without a registration), 2 evidence gaps, 2 style; all fixed. Round 3 (Codex): 2 bugs (multi-valued hook command; byte comparison of the plain file); fixed. Round 4 (Opus): 1 low Linux-only bug (non-UTF-8 path), fixed; 1 evidence gap, answered | None | firstmate fills at landing |
