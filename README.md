@@ -1,6 +1,6 @@
 # spec-lock
 
-Refuses code that reaches a protected branch without a spec in the hardened shape and a proof naming every acceptance criterion. One checker, called by two Git hooks and a GitHub action. Selected activation registers hooks per repository; legacy activation registers them globally.
+Refuses code that reaches a protected branch without a spec in the hardened shape and a proof naming every acceptance criterion. One checker, called by two Git hooks and a GitHub action. Selected and plain activation register hooks per repository; legacy activation registers them globally.
 
 ## The rule
 
@@ -74,7 +74,7 @@ after-review /absolute/canonical/repository/.git data/changelog.json
 
 ## Which branches, which repositories
 
-The guarded branches are each remote's default branch, `main` and `master`, and the integration branches in the central file. Every other branch is free. Every repository is covered unless the central file leaves it out.
+The guarded branches are each remote's default branch, `main` and `master`, and the integration branches in the central file. Every other branch is free. Every repository is covered unless the central file leaves it out. That is the legacy rule; on a machine in selected mode, only selected repositories and those on the plain list are covered (see [Plain coverage](#plain-coverage)).
 
 The central file is `~/.config/spec-lock/config` under the HOME git runs with. No environment variable moves it, because one would let any process point the hook at a file that opts its own repository out. Only the owner edits it. One entry per line; any other line is ignored:
 
@@ -381,3 +381,48 @@ and prints the temporary records directory. `all <directory>` saves to an explic
 output directory. `policy candidate <output.json>` runs only the 57 policy attempts.
 The [policy specification](docs/specs/portable-evidence-policy.md) and its proof name
 the measured scope and remaining limits.
+
+### Plain coverage
+
+On a machine in selected mode, the owner can give other repositories the plain proof rule: a code landing must add or edit a proof directly in `docs/proof/` whose `spec:` names a committed spec in the hardened shape, and the proof names every live AC id of that spec. No evidence manifest is required; an `evidence:` field is checked as version 1 when present. The selected repositories keep their own rule, and the central file, its bytes and the selected policy id are never touched.
+
+The list lives in its own owner file, `~/.config/spec-lock/plain` under the HOME git runs with, one entry per line:
+
+```text
+plain /absolute/canonical/repository/.git
+```
+
+- The path is the repository's common Git directory, written as a `select` line writes it. An entry covers the repository whose common directory is the same directory, compared by identity, not spelling. An entry naming a directory that does not exist never matches.
+- Blank lines and lines starting with `#` are ignored. Any other line, a relative path, a carriage return, a NUL byte or text that is not UTF-8 makes the file malformed.
+- A selected repository is judged by the selected rule even when an entry also names it.
+- A repository that is neither selected nor listed has no hooks and is not checked. Leaving a repository out is how it opts out. A listed repository is checked only once a plain rollout has registered its hooks, and `spec-lock check` there reports `unselected, not checked` until then.
+
+A plain rollout file holds only these lines:
+
+```text
+lane <id> <state>          a lane in flight in any workspace; activation waits until each one is "landed"
+repo <absolute path>       an inventory entry, recorded only
+plain <absolute path>      a repository to give the plain rule
+```
+
+`spec-lock-rollout preview <file>` prints the plan. `spec-lock-rollout activate <file>` refuses, and writes nothing, while a lane has not landed, when the central file is missing or not in selected mode, when a plain repository is also selected or has its own `hook.spec-lock-*` setting, when the file holds any other kind of line, or when a plain file already exists with other entries; only its owner edits it. Otherwise it writes the plain file if there is none, registers the two hooks in each listed repository's common config with the marker `--plain`, confirms git runs them in each worktree, and appends an `activated-plain` line to `activation`. Run it from the checker installation the hooks should call, and keep that installation until the registrations are removed. `doctor` checks a plain registration as it checks a selected one, and also reports one whose repository the plain file does not list.
+
+A plain registration fails closed: a missing or malformed central file or plain file refuses every branch update in that repository, and `spec-lock check` there exits 2. A registration whose repository the file does not list is not checked.
+
+What `spec-lock check` proves: on a selected machine its first line is `spec-lock policy <id>; <rule>; ...`. The rule is `semantic-v2` or `legacy` in a selected repository, `plain` in a listed one registered with `--plain`, and `unselected, not checked` anywhere else. A later `spec-lock: ok` means the range would land only under the first three. Under `unselected, not checked` the ok proves nothing: the repository is not covered, and a report should say so instead of quoting the ok as a pass.
+
+#### Rolling back plain coverage
+
+Run this with `sh`. In the common config of each listed repository, it removes each hook `command` value that ends in ` --plain`, and that hook's `event` once no command value is left, leaving any other registration and every other setting alone, then empties the plain file. Deleting the file instead would make any plain registration left behind refuse every branch update; an empty list leaves it unchecked, and `doctor` reports it. To drop one repository later, run the same two unsets for it before deleting its line.
+
+```sh
+plain="$HOME/.config/spec-lock/plain"
+while read -r entry dir || [ -n "$entry$dir" ]; do
+  [ "$entry" = plain ] || continue
+  for hook in spec-lock-reference-transaction spec-lock-pre-push; do
+    git config --file "$dir/config" --unset-all "hook.$hook.command" ' --plain$' &&
+      { git config --file "$dir/config" --get-all "hook.$hook.command" >/dev/null || git config --file "$dir/config" --unset-all "hook.$hook.event"; }
+  done
+done < "$plain"
+printf '# plain coverage rolled back\n' > "$plain"
+```

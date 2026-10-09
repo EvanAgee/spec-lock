@@ -6,11 +6,16 @@
 # Missing or malformed selected settings refuse all head updates before filtering. It uses only
 # shell builtins and git, because git may run it with a PATH that holds neither Node nor the usual tools.
 # It fails closed: a missing Node, a crashed checker or an unreadable object refuses a guarded update.
+# A --plain registration also reads the owner's plain file and applies the plain proof rule there.
 set -f
 event=$1
 shift
 selected_registration=0
-[ "$1" = --selected ] && selected_registration=1 && shift
+plain_registration=0
+case $1 in
+--selected) selected_registration=1; shift ;;
+--plain) selected_registration=1; plain_registration=1; shift ;;
+esac
 case $event in
 reference-transaction)
   # prepared can still stop an update; committed keeps the tip a landing left behind.
@@ -47,11 +52,12 @@ policy_error() {
 
 # Shell variables discard NUL bytes. Hash an exact line round-trip before parsing;
 # no object is written, and no Node or external text utility is needed.
-if [ -r "$config" ]; then
-  file_hash=$(git hash-object --no-filters "$config") || policy_error
-  text_hash=$({ while IFS= read -r raw; do printf '%s\n' "$raw"; done; printf '%s' "$raw"; } < "$config" | git hash-object --stdin) || policy_error
+exact() {
+  file_hash=$(git hash-object --no-filters "$1") || policy_error
+  text_hash=$({ while IFS= read -r raw; do printf '%s\n' "$raw"; done; printf '%s' "$raw"; } < "$1" | git hash-object --stdin) || policy_error
   [ "$file_hash" = "$text_hash" ] || policy_error
-fi
+}
+[ -r "$config" ] && exact "$config"
 
 # Selected registrations never fall back when the owner file disappears. Validate scope
 # using only shell builtins and Git, so unselected repositories need no Node.
@@ -104,7 +110,24 @@ $value
     esac
   done < "$config"
   [ "$mode_seen" = 1 ] && [ "$evidence_seen" = 1 ] || policy_error
-  [ "$chosen" = 1 ] || exit 0
+  if [ "$chosen" != 1 ]; then
+    # A plain registration checks its repository only while the owner's plain file lists it.
+    [ "$plain_registration" = 1 ] || exit 0
+    plain=$HOME/.config/spec-lock/plain
+    [ -r "$plain" ] || policy_error
+    exact "$plain"
+    covered=0
+    while read -r key value || [ -n "$key$value" ]; do
+      case "$key$value" in *"$carriage_return"*) policy_error ;; esac
+      case $key in
+        ''|'#'*) continue ;;
+        plain) case $value in /*) ;; *) policy_error ;; esac
+          [ "$value" -ef "$common" ] && covered=1 ;;
+        *) policy_error ;;
+      esac
+    done < "$plain"
+    [ "$covered" = 1 ] || exit 0
+  fi
 fi
 
 # Guarded: every remote's default branch, main and master, and the listed integration branches.
