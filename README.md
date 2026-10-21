@@ -14,6 +14,8 @@ spec: docs/specs/feature.md
 
 The spec path is read from the landed commit, relative to the repository root. The spec must pass the hardened-shape lint, and the proof must name every live acceptance id of that spec (`AC1`, `AC2`, ...). Each proof is checked against its own spec. Only committed files count, and a proof already on the branch cannot vouch for new code.
 
+A proof whose front matter `date` (`YYYY-MM-DD`) is on or after the go-live date must also say what the builder guessed while building, in a `## What I assumed` section with at least one line that is not blank before the next level-one or level-two heading. `None` counts, but it has to be written; text inside a code fence does not count. Marking which guesses the owner should read first is up to the proof and is never checked. A proof dated earlier, or with no date in that form, is judged as before, so work already under way still lands. The go-live date is the constant `ASSUMED_FROM` in `lib/lock.mjs`, now `2026-10-22`; moving it is a code change that ships like any other checker change, so the hooks, the CLI and the GitHub action always agree on it.
+
 Three moves need no proof:
 
 - A landing whose changed paths are all documentation: under `docs/` or ending in `.md`. Any proof it carries is still checked.
