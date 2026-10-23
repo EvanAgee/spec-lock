@@ -1,5 +1,7 @@
 // docs/specs/after-review-allowlist.md: exact paths the owner lets a bot change after a proof's
-// reviewed commit. Every repository is synthetic and HOME is the fixture's temp directory.
+// reviewed commit. The list decides where exact identity holds, so the landing is a version 1 one under
+// legacy policy (docs/specs/2026-10-23-own-branch-evidence.md). Every repository is synthetic and HOME
+// is the fixture's temp directory.
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {chmodSync,mkdirSync,rmSync,symlinkSync,writeFileSync} from 'node:fs'
@@ -7,13 +9,14 @@ import {join,dirname} from 'node:path'
 import {policyFixture} from './policy-fixture.mjs'
 
 const f=policyFixture()
-f.enable()
+rmSync(f.central)
+f.enable(false)
 const owner=join(f.dir,'.config/spec-lock/after-review')
 const allow=(text)=>{mkdirSync(dirname(owner),{recursive:true});writeFileSync(owner,text)}
 const BOT='data/changelog.json'
 const CHANGED=(path)=>new RegExp(`${path.replace(/[.*]/g,'\\$&')} changed after the reviewed commit`)
-// Commits on top of the valid evidence landing, as a bot would after the proofs were exported.
-const after=(name,files,prep)=>{f.ok('switch','-q','-C',name,f.tips.valid);return f.commit(files,prep)}
+// Commits on top of the version 1 evidence landing, as a bot would after the proofs were exported.
+const after=(name,files,prep)=>{f.ok('switch','-q','-C',name,f.tips.legacy);return f.commit(files,prep)}
 const added=after('bot-add',{[BOT]:'[]\n'})
 const edited=f.commit({[BOT]:'[1]\n'})
 
@@ -66,11 +69,11 @@ test('AC5: a missing, empty or comment-only owner file judges as before',()=>{
 test('AC6: a malformed or unreadable owner file refuses with exit 2, even when no entry is needed',()=>{
  for(const text of [`after-review ${f.common} data/../x.json`,`after-review ${f.common} /etc/x.json`,`after-review ${f.common}`,`allow ${f.common} ${BOT}`,'garbage',`after-review ${f.common} ${BOT}\r`]) {
   allow(text+'\n')
-  for(const tip of [edited,f.tips.valid]) {
+  for(const tip of [edited,f.tips.legacy]) {
    const r=f.attempt('cli',tip);assert.equal(r.code,2,`${text}: ${r.out}${r.err}`);assert.match(r.err,/after-review/)
   }
  }
  rmSync(owner);mkdirSync(owner)
- const r=f.attempt('cli',f.tips.valid);assert.equal(r.code,2,r.out+r.err);assert.match(r.err,/after-review/)
+ const r=f.attempt('cli',f.tips.legacy);assert.equal(r.code,2,r.out+r.err);assert.match(r.err,/after-review/)
  rmSync(owner,{recursive:true})
 })

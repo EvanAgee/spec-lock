@@ -58,7 +58,7 @@ test('golden AC7: capture rejects absent or wrong approval before executing; lat
  const tip=attachSemantic(f,e,'complete')
  assert.equal(f.run('node',[f.cli,'check-semantic',f.B,tip]).code,0)
  const later=f.commit({'test/golden.txt':'13\n'})
- const r=f.run('node',[f.cli,'check-semantic',f.B,later]);assert.equal(r.code,1);assert.match(r.out,/changed after the reviewed commit/)
+ const r=f.run('node',[f.cli,'check-semantic',f.B,later]);assert.equal(r.code,1);assert.match(r.out,/test\/golden\.txt is bound by the evidence recorded on/)
 })
 
 test('impact AC13: altered unrelated-failure result and missing denominator refuse the receipt CLI',async()=>{
